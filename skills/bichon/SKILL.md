@@ -23,7 +23,7 @@ the skill, not a script in the user's repository.
 ## Setup
 
 A workspace owner or admin creates an API key in the Bichon dashboard
-("Run locally" panel). The secret starts with `bichon_org_` and is shown once.
+(Members page, API keys card; the campaign page's "Run locally" panel links there). The secret starts with `bichon_org_` and is shown once.
 
 ```bash
 ./scripts/bichon.cjs setup --api-key bichon_org_<secret>

@@ -37,7 +37,7 @@ you have; `CHANGELOG.md` lists what changed.
 ## Quick Start
 
 A workspace owner or admin creates an API key in the Bichon dashboard
-("Run locally" panel). Then:
+(Members page, API keys card). Then:
 
 ```bash
 ./skills/bichon/scripts/bichon.cjs setup --api-key bichon_org_<secret>

@@ -348,7 +348,7 @@ const IDEATION_RUN_SCHEMA = {
           },
           coreMessage: str(300),
           assetId: nullable(str(200)),
-          assetReason: nullable(str(1000, 0)),
+          assetReason: nullable(str(300, 0)),
           evidence: {
             type: 'array',
             maxItems: 10,
