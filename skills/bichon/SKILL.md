@@ -85,8 +85,9 @@ code 1 on any failure. The API key is never printed.
    `accounts[].playbook`, `formatMenu`, `assets`, `priorIdeas`, `limits`,
    `preferences.rendered`, `audience.rendered`, `materials` and
    `skills.planning` / `skills.writing` (the workspace's own instructions for
-   each stage; follow them). Content language is `campaign.contentLanguage`,
-   falling back to `brand.language`.
+   each stage; follow them). Content language is `campaign.contentLanguage`;
+   when it is `null` the campaign setup is unfinished: stop and ask the
+   manager to confirm the content language in the dashboard before drafting.
 3. **Research.** Run `evidence --campaign <id>` for the newest signals and
    `evidence --q "<angle>"` for each angle you are considering. Run
    `competitors --brand <id>` for what performs in the space. Evidence and
@@ -153,7 +154,8 @@ puts cited ideas first and allows brief-grounded evergreen ideas labelled as
 such.
 
 **Choosing ideas.**
-- `recommendedFormat` must be one of `formatMenu`.
+- `recommendedFormat` must be one of `formatMenu`, spelled as listed (the
+  server matches case-insensitively and stores the menu label).
 - Match an asset (`assetId` from `context.assets`, with `assetReason`) only
   when it genuinely fits; otherwise both `null`. `materials` (real events,
   photos, notes) are good grounding for brief-mode ideas.
@@ -186,8 +188,9 @@ account's `recentPosts`: the server rejects near-duplicates.
   change the idea.
 - Write to the ONE persona reader in their moment, answer their fear or
   desire, land the core message. Never write to "everyone".
-- Content language is `campaign.contentLanguage` (else `brand.language`),
-  regardless of the user's chat language or the account's usual language.
+- Content language is `campaign.contentLanguage`, regardless of the user's
+  chat language or the account's usual language. Do not draft while it is
+  `null`.
 - Playbook account: take the idea's `formatPlan` entry for that account. Follow
   that format's `skeleton` and its model post (`layoutModelPostId`): its
   length, paragraphing, line breaks, punctuation (full-width ，。 or not),
@@ -249,7 +252,7 @@ IdeationRunBundle (`ideas:submit`):
       "whyNow": "Sour home brews are a standing beginner problem, and the roaster's guide gives concrete fixes we can cite. Evergreen, not news.",
       "limitation": "The guide gives general fixes; it does not cover water hardness or our own beans.",
       "whyNowCategory": "evergreen",
-      "recommendedFormat": "image",
+      "recommendedFormat": "Image",
       "personaKey": "home-brewer",
       "pov": {
         "moment": "Standing over a sour cup before work",
