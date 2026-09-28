@@ -95,7 +95,9 @@ code 1 on any failure. The API key is never printed.
 4. **Ideate** (rules below): persona → reader POV → core message → hook and
    treatment → format plan. At most 5 ideas; zero is a valid answer.
 5. **Submit.** Write the bundle to a file, `ideas:submit --campaign <id>
-   --file run.json`. A 400 `validation_failed` rejects the whole file: fix
+   --file run.json`. Give each bundle a unique `submissionId` (any short
+   string, e.g. a timestamp); resubmitting the same id returns the earlier
+   result instead of creating a second run. A 400 `validation_failed` rejects the whole file: fix
    every listed `details.issues[].path` and resubmit. A 409 `stale_versions`
    means the brief or source policy changed: reload the context and redo the
    affected ideas. Otherwise read `accepted` and `rejected`; fix a rejected
@@ -105,7 +107,8 @@ code 1 on any failure. The API key is never printed.
    (`campaign.targetProfileIds`, detailed in `context.accounts`), in the
    content language, following that account's planned playbook format, model
    post and voice (rules below). Write the bundle to a file and
-   `drafts:submit --idea <ideaId> --file drafts.json`.
+   `drafts:submit --idea <ideaId> --file drafts.json`. The idea keeps its
+   status: the manager approves and assigns it in the dashboard.
 7. **Repair.** Read each draft's `voiceCheck`. Fix every `fail` finding and
    any `warn` you agree with, then resubmit the same bundle shape; the server
    updates the existing draft for that account. Stop after two repair rounds
@@ -240,6 +243,7 @@ IdeationRunBundle (`ideas:submit`):
   "format": "bichon-ideation-run/v1",
   "agent": { "name": "claude-code", "model": "claude-opus-5-5", "promptVersion": "bichon-skill-2026-09-28" },
   "mode": "evidence",
+  "submissionId": "2026-09-28T09-00-launch",
   "briefVersion": "<context.versions.briefVersion>",
   "sourcePolicyVersion": "<context.versions.sourcePolicyVersion>",
   "note": "Two strong angles this week; skipped the espresso-machine recall as off-brief.",

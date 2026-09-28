@@ -317,6 +317,7 @@ const IDEATION_RUN_SCHEMA = {
     mode: { enum: MODES },
     briefVersion: str(200),
     sourcePolicyVersion: str(200),
+    submissionId: str(80),
     note: str(300, 0),
     noIdeasReason: str(300, 0),
     ideas: {
