@@ -352,6 +352,7 @@ is not empty, `assetReason` whenever `assetId` is set, and a non-evergreen
 | 409 | `idea_status` | Idea is killed or done; drafts need proposed, approved or assigned |
 | 409 | `draft_status` | Draft is past `drafting` / `changes_requested`, or submit was refused (message says why) |
 | 413 | `payload_too_large` | Body over 1 MB; send fewer ideas or drafts per call |
+| 503 | `provider_unavailable` | Evidence search could not embed the query; retry later or search without `--q` |
 
 Per-idea rejections in `ideas:submit` (`rejected[].code`):
 
@@ -361,12 +362,17 @@ Per-idea rejections in `ideas:submit` (`rejected[].code`):
 | `unknown_persona` / `plan.unknown_persona` | use a `personas[].key`, or `null` when there are none |
 | `asset_not_bound` | use an `assets[].assetId` or `null` |
 | `evidence_invalid` | cite only ids returned by `evidence` for this campaign |
+| `evidence_required` | a non-evergreen `whyNowCategory` needs at least one evidence entry |
+| `plan.unknown_account` | `formatPlan` names an account outside `campaign.targetProfileIds` |
 | `plan.missing_format` | add a `formatPlan` entry for every playbook account |
 | `plan.unknown_format` | use a key from that account's `playbook.formats` |
 | `plan.unknown_model_post` | use an `externalId` from that format's `examples` |
 | `plan.unsourced_fan_question` | drop the "someone asked me" opener or cite the question in `openerSource` |
 | `plan.near_duplicate` | the idea restates a recent post; find a different angle |
 | `already_proposed` | the topic or primary signal is already in the campaign; do not resubmit |
+
+A run with no accepted ideas ends with status `no_candidates`; a run with at
+least one accepted idea ends `succeeded`.
 
 ## Notes for agents
 
