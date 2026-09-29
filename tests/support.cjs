@@ -62,15 +62,20 @@ function writeJson(filePath, value) {
   return filePath;
 }
 
-function skillExamples() {
+function skillBlocks(language) {
   const source = fs.readFileSync(SKILL_MD, 'utf8');
-  const blocks = [...source.matchAll(/```json\n([\s\S]*?)```/g)].map((match) => JSON.parse(match[1]));
+  return [...source.matchAll(new RegExp(`\`\`\`${language}\n([\\s\\S]*?)\`\`\``, 'g'))].map((match) => match[1]);
+}
+
+function skillExamples() {
+  const blocks = skillBlocks('json').map((block) => JSON.parse(block));
   return {
     ideationRun: blocks.find((block) => block.format === 'bichon-ideation-run/v1'),
     drafts: blocks.find((block) => block.format === 'bichon-drafts/v1'),
+    research: blocks.find((block) => block.format === 'bichon-research-analyses/v1'),
     setup: blocks.find((block) => Array.isArray(block.targetProfileIds)),
     personas: blocks.find((block) => Object.keys(block).join() === 'personas'),
   };
 }
 
-module.exports = { API_KEY, SCRIPT, run, startServer, tempDir, writeJson, skillExamples };
+module.exports = { API_KEY, SCRIPT, run, startServer, tempDir, writeJson, skillBlocks, skillExamples };

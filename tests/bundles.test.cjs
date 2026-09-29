@@ -59,15 +59,34 @@ test('rejects more than five ideas', async () => {
   assertRejected(await submitRun(bundle), ['ideas']);
 });
 
-test('rejects an unknown or retired whyNowCategory', async () => {
+test('rejects an unknown or retired whyNowCategory and accepts active_discussion', async () => {
+  for (const retired of ['dated_event', 'growing_discussion']) {
+    const bundle = clone(skillExamples().ideationRun);
+    bundle.ideas[0].whyNowCategory = retired;
+    assertRejected(await submitRun(bundle), ['ideas[0].whyNowCategory']);
+  }
   const bundle = clone(skillExamples().ideationRun);
-  bundle.ideas[0].whyNowCategory = 'dated_event';
-  assertRejected(await submitRun(bundle), ['ideas[0].whyNowCategory']);
+  bundle.ideas[0].whyNowCategory = 'active_discussion';
+  const result = await submitRun(bundle, ['--dry-run']);
+  assert.equal(result.code, 0, result.stdout);
+});
+
+test('evidence cites a signal or a Threads discovery, never both', async () => {
+  const bundle = clone(skillExamples().ideationRun);
+  assert.ok(bundle.ideas[0].evidence.some((entry) => 'discoveryId' in entry));
+  bundle.ideas[0].evidence[0].discoveryId = 'd1';
+  bundle.ideas[0].evidence[2] = { discoveryId: 'd2', reason: 'Readers ask this.', excerpt: 'why is it sour' };
+  bundle.ideas[0].evidence.push({ reason: 'No id at all.' });
+  assertRejected(await submitRun(bundle), [
+    'ideas[0].evidence[0].discoveryId',
+    'ideas[0].evidence[2].excerpt',
+    'ideas[0].evidence[3].signalId',
+  ]);
 });
 
 test('rejects evidence indexes outside the idea evidence', async () => {
   const bundle = clone(skillExamples().ideationRun);
-  bundle.ideas[0].primaryEvidence = 2;
+  bundle.ideas[0].primaryEvidence = 3;
   bundle.ideas[0].claims[1].evidence = 5;
   assertRejected(await submitRun(bundle), ['ideas[0].primaryEvidence', 'ideas[0].claims[1].evidence']);
 });
@@ -122,7 +141,9 @@ test('schema prints draft 2020-12 schemas for both bundles', async () => {
   const { ideationRun, drafts } = result.json.data;
   for (const schema of [ideationRun, drafts]) assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
   assert.equal(ideationRun.properties.ideas.maxItems, 5);
-  assert.deepEqual(ideationRun.properties.ideas.items.properties.whyNowCategory.enum, ['timely_news', 'growing_discussion', 'competitor_performance', 'evergreen']);
+  const idea = ideationRun.properties.ideas.items.properties;
+  assert.deepEqual(idea.whyNowCategory.enum, ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen']);
+  assert.deepEqual(idea.evidence.items.oneOf.map((branch) => branch.required), [['signalId', 'reason'], ['discoveryId', 'reason']]);
   assert.equal(drafts.properties.drafts.items.properties.caption.maxLength, 5000);
   const one = await run(['schema', '--bundle', 'drafts']);
   assert.deepEqual(one.json.data, drafts);

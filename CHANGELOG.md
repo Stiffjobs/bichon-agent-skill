@@ -16,6 +16,22 @@ Run `npx skills update bichon` to get the latest.
   `modelPosts[].externalId`; captions follow the format's skeleton and model
   post and `analysis.rules`, with `managerNotes` first; drafts are
   voice-checked when the account has a ready analysis.
+- Local research analysis: `research:collect`, `research:runs`,
+  `research:pending` (`--out` writes the leased batch to a file),
+  `research:submit` and `research:sources`. ResearchAnalysisBundle files are
+  validated locally (`--dry-run` validates only; `schema --bundle research`).
+- SKILL.md gains a Research section: collect, lease batches, one Opus analyst
+  subagent per batch in parallel (sequential without subagents), submit until
+  nothing is pending. It carries the analyst brief as a template and a
+  validated ResearchAnalysisBundle example.
+- `evidence`, `threads` and `competitors` return analyzed items only;
+  `evidence --kind` filters by item kind, and `context --out` reports the
+  research counts.
+- Ideation: evidence entries cite `{ signalId, versionId?, reason, excerpt? }`
+  or `{ discoveryId, reason }`; unanalyzed items are rejected
+  (`evidence_not_analyzed`). `active_discussion` replaces
+  `growing_discussion`, which is rejected; `competitor_performance` needs a
+  cited competitor post with an engagement read. No trend claims.
 
 ## 0.2.0 (2026-09-29)
 

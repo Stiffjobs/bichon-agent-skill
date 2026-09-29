@@ -1,9 +1,10 @@
 # Bichon Skill
 
-Agent skill for running Bichon campaign intake, ideation and caption drafting
-from a local agent (Claude Code, Codex, or any agent that can run a shell command).
-The agent reads a campaign's context and research through the Bichon agent
-API, does the thinking and writing itself, and submits ideas and drafts back.
+Agent skill for running Bichon campaign intake, research analysis, ideation
+and caption drafting from a local agent (Claude Code, Codex, or any agent that
+can run a shell command). The agent reads a campaign's context and collected
+research through the Bichon agent API, analyzes the research, does the
+thinking and writing itself, and submits analyses, ideas and drafts back.
 Bichon stays the system of record: managers review, schedule and publish in
 the dashboard. The skill never publishes.
 
@@ -52,6 +53,14 @@ A workspace owner or admin creates an API key in the Bichon dashboard
 New campaign: ask the agent to set one up ("start an autumn campaign for <brand>"); it reads
 `brand:context` and `personas:draft`, interviews you, and runs `campaigns:create` once you confirm its summary.
 
+Research: before ideating, the agent analyzes what Bichon collected for the
+campaign (articles, competitor posts, Threads posts). It leases batches with
+`research:pending`, hands each batch to an analyst subagent (in Claude Code,
+one Opus subagent per batch, several in parallel) and stores the results with
+`research:submit` until nothing is pending. Ideation reads analyzed items
+only; ask for a fresh collection ("collect new research for the autumn
+campaign") when the sources are stale.
+
 ## Example Run
 
 Inside an agent session, ask for it in plain words ("run ideation for the
@@ -62,6 +71,10 @@ agent runs:
 S=./skills/bichon/scripts/bichon.cjs
 $S campaigns --brand <brandId>
 $S context --campaign <campaignId> --out work/context.json
+$S research:pending --campaign <campaignId> --limit 25 --out work/batch-1.json
+# one analyst subagent per batch writes work/analyses-1.json (ResearchAnalysisBundle)
+$S research:submit --campaign <campaignId> --file work/analyses-1.json
+# → { stored, rejected, remaining }; repeat until nothing is pending
 $S evidence --campaign <campaignId> --q "sour pour-over fixes" --limit 20
 $S competitors --brand <brandId>
 # the agent writes work/run.json (IdeationRunBundle, see SKILL.md)
@@ -75,7 +88,8 @@ $S draft:submit --id <draftId>   # optional: send to manager review
 
 Every command prints `{"ok":true,"data":...}` or, with exit code 1,
 `{"ok":false,"error":{"code","message","details?"}}`. `schema` prints the JSON
-Schemas of the bundles (ideation run, drafts, campaign setup, personas), and `--dry-run` validates a bundle without sending it.
+Schemas of the bundles (ideation run, drafts, campaign setup, personas,
+research analyses), and `--dry-run` validates a bundle without sending it.
 
 ## Tests
 

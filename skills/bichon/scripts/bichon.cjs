@@ -29,12 +29,17 @@ const SENSITIVE_FIELD_NAMES = new Set([
 ]);
 const CAMPAIGN_STATUSES = ['active', 'archived'];
 const IDEA_STATUSES = ['proposed', 'approved', 'assigned', 'killed', 'done'];
-const WHY_NOW_CATEGORIES = ['timely_news', 'growing_discussion', 'competitor_performance', 'evergreen'];
+const WHY_NOW_CATEGORIES = ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen'];
 const MODES = ['evidence', 'brief', 'mixed'];
 const POST_TYPES = ['image', 'video', 'text'];
 const PLATFORMS = ['facebook', 'instagram', 'threads'];
 const POST_FORMATS = ['text', 'image', 'carousel', 'video', 'reel', 'link'];
 const COMPETITOR_PROVIDERS = ['instagram', 'threads'];
+const COLLECT_KINDS = ['rss', 'competitors', 'threads'];
+const ITEM_KINDS = ['article', 'competitor_post', 'threads_post'];
+const ANALYSIS_CATEGORIES = ['report', 'announcement', 'opinion', 'how_to', 'data_point', 'product_post', 'promo', 'discussion', 'other'];
+const ANALYSIS_QUALITIES = ['useful', 'thin', 'promo', 'off_topic'];
+const ANALYSIS_RELEVANCE = ['direct', 'adjacent', 'off_topic'];
 const HTTP_CODES = {
   400: 'invalid_request',
   401: 'unauthorized',
@@ -112,6 +117,17 @@ function integerOption(parsed, name, min, max) {
     throw new CliError('invalid_request', `--${name} must be an integer from ${min} to ${max}.`);
   }
   return Number(value);
+}
+
+function listOption(parsed, name, allowed) {
+  const value = optionalOption(parsed, name);
+  if (value === undefined) return undefined;
+  const items = [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+  const unknown = items.filter((item) => !allowed.includes(item));
+  if (items.length === 0 || unknown.length > 0) {
+    throw new CliError('invalid_request', `--${name} takes a comma-separated list of: ${allowed.join(', ')}.`);
+  }
+  return items;
 }
 
 function normalizeBaseUrl(value, label) {
@@ -308,6 +324,11 @@ const agentSchema = {
   required: ['name'],
   properties: { name: str(80), model: str(80), promptVersion: str(80) },
 };
+const signalEvidenceSchema = strictObject(
+  { signalId: str(200), versionId: str(200), excerpt: str(400, 0), reason: str(2000) },
+  ['signalId', 'reason'],
+);
+const discoveryEvidenceSchema = strictObject({ discoveryId: str(200), reason: str(2000) }, ['discoveryId', 'reason']);
 
 const IDEATION_RUN_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -355,16 +376,7 @@ const IDEATION_RUN_SCHEMA = {
           coreMessage: str(300),
           assetId: nullable(str(200)),
           assetReason: nullable(str(300, 0)),
-          evidence: {
-            type: 'array',
-            maxItems: 10,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['signalId', 'reason'],
-              properties: { signalId: str(200), versionId: str(200), excerpt: str(400, 0), reason: str(2000) },
-            },
-          },
+          evidence: list({ oneOf: [signalEvidenceSchema, discoveryEvidenceSchema] }, 10),
           primaryEvidence: { type: 'integer', minimum: 0, maximum: 9 },
           claims: {
             type: 'array',
@@ -452,6 +464,40 @@ const PERSONAS_SCHEMA = {
   ...strictObject({ personas: list(PERSONA_SCHEMA, 5, { minItems: 1 }) }, ['personas']),
 };
 
+const RESEARCH_ANALYSES_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'urn:bichon:schema:research-analyses:v1',
+  title: 'ResearchAnalysisBundle',
+  description: 'Body of research:submit. Every itemRef must come from the batch leased under leaseId.',
+  ...strictObject(
+    {
+      format: { const: 'bichon-research-analyses/v1' },
+      agent: agentSchema,
+      leaseId: str(200),
+      items: list(
+        strictObject(
+          {
+            itemRef: str(200),
+            summary: str(400),
+            facts: list(str(300), 6),
+            category: { enum: ANALYSIS_CATEGORIES },
+            quality: { enum: ANALYSIS_QUALITIES },
+            relevance: { enum: ANALYSIS_RELEVANCE },
+            whyItMatters: str(300),
+            engagementRead: { ...str(200), description: 'words relative to the author baseline, never numbers; threads_post and competitor_post only' },
+            themes: { ...list(str(80), 3), description: 'competitor_post only' },
+            angle: str(300),
+          },
+          ['itemRef', 'summary', 'facts', 'category', 'quality', 'relevance', 'whyItMatters'],
+        ),
+        25,
+        { minItems: 1 },
+      ),
+    },
+    ['format', 'agent', 'leaseId', 'items'],
+  ),
+};
+
 const idList = (maxItems, extra) => list(str(200), maxItems, { uniqueItems: true, ...extra });
 
 const SETUP_SCHEMA = {
@@ -525,6 +571,16 @@ function validate(schema, value, at, issues) {
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) add('has duplicate items');
     if (schema.items) value.forEach((item, index) => validate(schema.items, item, `${at}[${index}]`, issues));
   }
+  if (schema.oneOf) {
+    const attempts = schema.oneOf.map((branch) => {
+      const found = [];
+      validate(branch, value, at, found);
+      return found;
+    });
+    if (!attempts.some((found) => found.length === 0)) {
+      issues.push(...attempts.reduce((best, found) => (found.length < best.length ? found : best)));
+    }
+  }
   if (value && typeof value === 'object' && !Array.isArray(value) && schema.properties) {
     for (const key of schema.required || []) {
       if (!(key in value)) issues.push({ path: at ? `${at}.${key}` : key, message: 'is required' });
@@ -562,25 +618,29 @@ function checkIdeationBundle(bundle, issues) {
     if (idea.assetId && !idea.assetReason) {
       issues.push({ path: `${at}.assetReason`, message: 'is required when assetId is set' });
     }
-    const seen = new Set();
-    (Array.isArray(idea.formatPlan) ? idea.formatPlan : []).forEach((entry, entryIndex) => {
-      if (!entry || typeof entry.socialProfileId !== 'string') return;
-      if (seen.has(entry.socialProfileId)) {
-        issues.push({ path: `${at}.formatPlan[${entryIndex}].socialProfileId`, message: 'appears twice; plan one format per account' });
-      }
-      seen.add(entry.socialProfileId);
-    });
+    checkUnique(idea.formatPlan, 'socialProfileId', `${at}.formatPlan`, 'appears twice; plan one format per account', issues);
+  });
+}
+
+function checkUnique(entries, field, at, message, issues) {
+  const seen = new Set();
+  (Array.isArray(entries) ? entries : []).forEach((entry, index) => {
+    if (!entry || typeof entry[field] !== 'string') return;
+    if (seen.has(entry[field])) issues.push({ path: `${at}[${index}].${field}`, message });
+    seen.add(entry[field]);
   });
 }
 
 function checkDraftsBundle(bundle, issues) {
-  const seen = new Set();
-  (Array.isArray(bundle.drafts) ? bundle.drafts : []).forEach((draft, index) => {
-    if (!draft || typeof draft.socialProfileId !== 'string') return;
-    if (seen.has(draft.socialProfileId)) {
-      issues.push({ path: `drafts[${index}].socialProfileId`, message: 'appears twice; send one draft per account' });
+  checkUnique(bundle.drafts, 'socialProfileId', 'drafts', 'appears twice; send one draft per account', issues);
+}
+
+function checkResearchBundle(bundle, issues) {
+  checkUnique(bundle.items, 'itemRef', 'items', 'appears twice; analyze each item once', issues);
+  (Array.isArray(bundle.items) ? bundle.items : []).forEach((item, index) => {
+    if (item && typeof item.engagementRead === 'string' && /\d/.test(item.engagementRead)) {
+      issues.push({ path: `items[${index}].engagementRead`, message: 'must describe engagement in words, relative to the author baseline; no numbers' });
     }
-    seen.add(draft.socialProfileId);
   });
 }
 
@@ -596,8 +656,9 @@ const BUNDLES = {
   setup: { schema: SETUP_SCHEMA, counts: (setup) => ({ fields: Object.keys(setup).length, personas: countOf(setup.personas), keywords: countOf(setup.keywords) }) },
   'setup-patch': { schema: { ...SETUP_SCHEMA, required: [] }, check: checkSetupPatch, counts: (setup) => ({ fields: Object.keys(setup).length }) },
   personas: { schema: PERSONAS_SCHEMA, counts: (file) => ({ personas: file.personas.length }) },
+  research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['ideation-run', 'drafts', 'setup', 'personas'];
+const SCHEMA_BUNDLES = ['ideation-run', 'drafts', 'setup', 'personas', 'research'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -691,6 +752,27 @@ function get(route, query) {
   return withConfig(async (parsed, config) => emit(await api(config, 'GET', route(parsed), { query: query && query(parsed) })));
 }
 
+function post(route, body) {
+  return withConfig(async (parsed, config) => emit(await api(config, 'POST', route(parsed), { body: body && body(parsed) })));
+}
+
+// --out keeps large payloads (full context, raw research batches) out of the
+// agent's transcript: the data goes to a file and only a summary is printed.
+function getToFile(route, query, summarize) {
+  return withConfig(async (parsed, config) => {
+    const out = optionalOption(parsed, 'out');
+    const result = await api(config, 'GET', route(parsed), { query: query && query(parsed) });
+    if (!out) return emit(result);
+    const file = path.resolve(out);
+    writeJsonFile(file, result.data);
+    return succeed({ written: file, bytes: fs.statSync(file).size, ...summarize(result.data || {}) });
+  });
+}
+
+const idRoute = (collection, option, suffix = '') => (parsed) => `/${collection}/${segment(requireOption(parsed, option))}${suffix}`;
+const campaignRoute = (suffix) => idRoute('campaigns', 'campaign', suffix);
+const brandRoute = (suffix) => idRoute('brands', 'brand', suffix);
+
 async function submitBundle(parsed, config, kind, route, { method = 'POST', extra = {} } = {}) {
   const bundle = loadBundle(parsed, kind);
   if (parsed['dry-run']) {
@@ -715,82 +797,71 @@ const COMMANDS = {
   }),
   brands: get(() => '/brands'),
   campaigns: get(
-    (parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/campaigns`,
+    brandRoute('/campaigns'),
     (parsed) => ({ status: enumOption(parsed, 'status', CAMPAIGN_STATUSES) }),
   ),
-  context: withConfig(async (parsed, config) => {
-    const route = `/campaigns/${segment(requireOption(parsed, 'campaign'))}/context`;
-    const out = optionalOption(parsed, 'out');
-    const result = await api(config, 'GET', route);
-    if (!out) return emit(result);
-    const file = path.resolve(out);
-    writeJsonFile(file, result.data);
-    const data = result.data || {};
-    return succeed({
-      written: file,
-      bytes: fs.statSync(file).size,
-      versions: data.versions || null,
-      campaign: data.campaign ? { id: data.campaign.id, name: data.campaign.name, contentLanguage: data.campaign.contentLanguage || null } : null,
-      counts: {
-        personas: Array.isArray(data.personas) ? data.personas.length : 0,
-        accounts: Array.isArray(data.accounts) ? data.accounts.length : 0,
-        formatMenu: Array.isArray(data.formatMenu) ? data.formatMenu.length : 0,
-        priorIdeas: Array.isArray(data.priorIdeas) ? data.priorIdeas.length : 0,
-      },
-    });
-  }),
+  context: getToFile(campaignRoute('/context'), undefined, (data) => ({
+    versions: data.versions || null,
+    campaign: data.campaign ? { id: data.campaign.id, name: data.campaign.name, contentLanguage: data.campaign.contentLanguage || null } : null,
+    research: data.research || null,
+    counts: {
+      personas: countOf(data.personas),
+      accounts: countOf(data.accounts),
+      formatMenu: countOf(data.formatMenu),
+      priorIdeas: countOf(data.priorIdeas),
+    },
+  })),
   evidence: get(
-    (parsed) => `/campaigns/${segment(requireOption(parsed, 'campaign'))}/evidence`,
+    campaignRoute('/evidence'),
     (parsed) => ({
       q: optionalOption(parsed, 'q'),
       limit: integerOption(parsed, 'limit', 1, 50),
+      kind: enumOption(parsed, 'kind', ITEM_KINDS),
       sourceId: optionalOption(parsed, 'source'),
     }),
   ),
-  competitors: get((parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/competitors`),
+  competitors: get(brandRoute('/competitors')),
   ideas: get(
-    (parsed) => `/campaigns/${segment(requireOption(parsed, 'campaign'))}/ideas`,
+    campaignRoute('/ideas'),
     (parsed) => ({ status: enumOption(parsed, 'status', IDEA_STATUSES) }),
   ),
-  'ideas:submit': withConfig((parsed, config) => submitBundle(
-    parsed,
-    config,
-    'ideation-run',
-    `/campaigns/${segment(requireOption(parsed, 'campaign'))}/ideation-runs`,
-  )),
-  'run:get': get((parsed) => `/ideation-runs/${segment(requireOption(parsed, 'id'))}`),
-  'drafts:submit': withConfig((parsed, config) => submitBundle(
-    parsed,
-    config,
-    'drafts',
-    `/ideas/${segment(requireOption(parsed, 'idea'))}/drafts`,
-  )),
-  'draft:get': get((parsed) => `/drafts/${segment(requireOption(parsed, 'id'))}`),
-  'draft:submit': withConfig(async (parsed, config) => (
-    emit(await api(config, 'POST', `/drafts/${segment(requireOption(parsed, 'id'))}/submit`, { body: {} }))
-  )),
-  'brand:context': get((parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/context`),
+  'ideas:submit': sendFile('ideation-run', campaignRoute('/ideation-runs')),
+  'run:get': get(idRoute('ideation-runs', 'id')),
+  'drafts:submit': sendFile('drafts', idRoute('ideas', 'idea', '/drafts')),
+  'draft:get': get(idRoute('drafts', 'id')),
+  'draft:submit': post(idRoute('drafts', 'id', '/submit'), () => ({})),
+  'brand:context': get(brandRoute('/context')),
   'personas:draft': get(
-    (parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/personas/draft`,
+    brandRoute('/personas/draft'),
     (parsed) => ({ socialProfileId: optionalOption(parsed, 'profile') }),
   ),
-  'personas:set': sendFile('personas', (parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/personas`, () => ({ method: 'PUT' })),
-  'campaigns:create': sendFile('setup', (parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/campaigns`),
-  'campaigns:update': sendFile('setup-patch', (parsed) => `/campaigns/${segment(requireOption(parsed, 'campaign'))}`, (parsed) => {
+  'personas:set': sendFile('personas', brandRoute('/personas'), () => ({ method: 'PUT' })),
+  'campaigns:create': sendFile('setup', brandRoute('/campaigns')),
+  'campaigns:update': sendFile('setup-patch', campaignRoute(), (parsed) => {
     const impactKey = optionalOption(parsed, 'impact-key');
     return { method: 'PATCH', extra: impactKey === undefined ? {} : { impactKey } };
   }),
-  threads: get((parsed) => `/campaigns/${segment(requireOption(parsed, 'campaign'))}/threads`),
-  'analysis:request': withConfig(async (parsed, config) => emit(await api(
-    config,
-    'POST',
-    `/brands/${segment(requireOption(parsed, 'brand'))}/accounts/${segment(requireOption(parsed, 'profile'))}/analysis`,
-  ))),
+  threads: get(campaignRoute('/threads')),
+  'research:collect': post(campaignRoute('/research/collect'), (parsed) => ({ kinds: listOption(parsed, 'kinds', COLLECT_KINDS) || COLLECT_KINDS })),
+  'research:runs': get(campaignRoute('/research/runs')),
+  'research:pending': getToFile(
+    campaignRoute('/research/pending'),
+    (parsed) => ({ limit: integerOption(parsed, 'limit', 1, 25), kind: enumOption(parsed, 'kind', ITEM_KINDS) }),
+    (data) => {
+      const items = Array.isArray(data.items) ? data.items : [];
+      const kinds = {};
+      for (const item of items) kinds[item.kind] = (kinds[item.kind] || 0) + 1;
+      return { leaseId: data.leaseId || null, leaseUntil: data.leaseUntil || null, remaining: data.remaining ?? null, items: items.length, kinds };
+    },
+  ),
+  'research:submit': sendFile('research', campaignRoute('/research/analyses')),
+  'research:sources': get(brandRoute('/research/sources')),
+  'analysis:request': post((parsed) => `${brandRoute()(parsed)}${idRoute('accounts', 'profile', '/analysis')(parsed)}`),
   schema: async (args) => {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
     if (bundle) return succeed(BUNDLES[bundle].schema);
-    return succeed({ ideationRun: IDEATION_RUN_SCHEMA, drafts: DRAFTS_SCHEMA, setup: SETUP_SCHEMA, personas: PERSONAS_SCHEMA });
+    return succeed({ ideationRun: IDEATION_RUN_SCHEMA, drafts: DRAFTS_SCHEMA, setup: SETUP_SCHEMA, personas: PERSONAS_SCHEMA, research: RESEARCH_ANALYSES_SCHEMA });
   },
   help: async () => succeed({
     usage: `${SCRIPT} <command> [--options] [--pretty]`,
@@ -801,7 +872,7 @@ const COMMANDS = {
       brands: '',
       campaigns: '--brand <brandId> [--status active|archived]',
       context: '--campaign <campaignId> [--out <file>]',
-      evidence: '--campaign <campaignId> [--q <text>] [--limit 1..50] [--source <sourceId>]',
+      evidence: `--campaign <campaignId> [--q <text>] [--limit 1..50] [--kind ${ITEM_KINDS.join('|')}] [--source <sourceId>]`,
       competitors: '--brand <brandId>',
       ideas: `--campaign <campaignId> [--status ${IDEA_STATUSES.join('|')}]`,
       'ideas:submit': '--campaign <campaignId> --file <bundle.json> [--dry-run]',
@@ -815,6 +886,11 @@ const COMMANDS = {
       'campaigns:create': '--brand <brandId> --file <setup.json> [--dry-run]',
       'campaigns:update': '--campaign <campaignId> --file <setup.json> [--impact-key <key>] [--dry-run]',
       threads: '--campaign <campaignId>',
+      'research:collect': `--campaign <campaignId> [--kinds ${COLLECT_KINDS.join(',')}]`,
+      'research:runs': '--campaign <campaignId>',
+      'research:pending': `--campaign <campaignId> [--limit 1..25] [--kind ${ITEM_KINDS.join('|')}] [--out <batch.json>]`,
+      'research:submit': '--campaign <campaignId> --file <analyses.json> [--dry-run]',
+      'research:sources': '--brand <brandId>',
       'analysis:request': '--brand <brandId> --profile <socialProfileId>',
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
