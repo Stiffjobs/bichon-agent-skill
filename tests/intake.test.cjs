@@ -75,19 +75,23 @@ test('sends setup and personas files with their methods and routes', async () =>
   assert.deepEqual(saved.requests[0].body, personas);
 });
 
-test('playbook:request posts without a body to the account playbook route', async () => {
-  server.reply(() => ok({ socialProfileId: 'sp1', status: 'queued' }));
-  const result = await call(['playbook:request', '--brand', 'b1', '--profile', 'sp1']);
+test('analysis:request posts without a body to the account analysis route', async () => {
+  const status = { socialProfileId: 'sp1', status: 'insufficient_data', note: 'Only 3 posts in the last 90 days.' };
+  server.reply(() => ok(status));
+  const result = await call(['analysis:request', '--brand', 'b1', '--profile', 'sp1']);
   server.reply(() => ok({ campaignId: 'c9', warnings: [] }));
   assert.equal(result.code, 0, result.stdout);
   assert.equal(result.requests.length, 1);
   assert.equal(result.requests[0].method, 'POST');
-  assert.equal(result.requests[0].path, '/agent/v1/brands/b1/accounts/sp1/playbook');
+  assert.equal(result.requests[0].path, '/agent/v1/brands/b1/accounts/sp1/analysis');
   assert.equal(result.requests[0].body, undefined);
-  assert.deepEqual(result.json.data, { socialProfileId: 'sp1', status: 'queued' });
-  const missing = await call(['playbook:request', '--brand', 'b1']);
-  assert.equal(missing.code, 1);
-  assert.equal(missing.requests.length, 0);
+  assert.deepEqual(result.json.data, status);
+  for (const args of [['analysis:request', '--brand', 'b1'], ['analysis:request', '--profile', 'sp1'], ['playbook:request', '--brand', 'b1', '--profile', 'sp1']]) {
+    const refused = await call(args);
+    assert.equal(refused.code, 1, args.join(' '));
+    assert.equal(refused.requests.length, 0, args.join(' '));
+    assert.equal(refused.json.error.code, 'invalid_request', args.join(' '));
+  }
 });
 
 test('--impact-key is added to the update body', async () => {

@@ -781,10 +781,10 @@ const COMMANDS = {
     return { method: 'PATCH', extra: impactKey === undefined ? {} : { impactKey } };
   }),
   threads: get((parsed) => `/campaigns/${segment(requireOption(parsed, 'campaign'))}/threads`),
-  'playbook:request': withConfig(async (parsed, config) => emit(await api(
+  'analysis:request': withConfig(async (parsed, config) => emit(await api(
     config,
     'POST',
-    `/brands/${segment(requireOption(parsed, 'brand'))}/accounts/${segment(requireOption(parsed, 'profile'))}/playbook`,
+    `/brands/${segment(requireOption(parsed, 'brand'))}/accounts/${segment(requireOption(parsed, 'profile'))}/analysis`,
   ))),
   schema: async (args) => {
     const parsed = parseArgs(args);
@@ -815,7 +815,7 @@ const COMMANDS = {
       'campaigns:create': '--brand <brandId> --file <setup.json> [--dry-run]',
       'campaigns:update': '--campaign <campaignId> --file <setup.json> [--impact-key <key>] [--dry-run]',
       threads: '--campaign <campaignId>',
-      'playbook:request': '--brand <brandId> --profile <socialProfileId>',
+      'analysis:request': '--brand <brandId> --profile <socialProfileId>',
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
     env: ['BICHON_AGENT_API_KEY', 'BICHON_AGENT_BASE_URL', 'BICHON_CONFIG_PATH'],

@@ -3,6 +3,20 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.3.0 (2026-09-29)
+
+- The account playbook is part of the server's channel analysis.
+  `analysis:request --brand <id> --profile <socialProfileId>` replaces
+  `playbook:request`; there is no approval step.
+- Context accounts carry `analysisStatus`, `analysis` (formats with
+  `skeleton`, `openers` and `modelPosts`, `rules`, `fingerprintLine`),
+  `voice` and `managerNotes`. `playbook`, `playbookStatus`, `usage`,
+  `recentPosts`, `audience` and post metrics are gone.
+- SKILL.md: `layoutModelPostId` must be one of the format's
+  `modelPosts[].externalId`; captions follow the format's skeleton and model
+  post and `analysis.rules`, with `managerNotes` first; drafts are
+  voice-checked when the account has a ready analysis.
+
 ## 0.2.0 (2026-09-29)
 
 - Campaign intake: `brand:context`, `personas:draft`, `personas:set`,

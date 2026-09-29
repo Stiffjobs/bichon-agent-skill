@@ -4,7 +4,7 @@ description: >
   Run Bichon campaign intake, ideation and caption drafting locally. Sets up a
   new campaign by interviewing the manager against the brand's data (or fills
   the gaps of an existing one), reads a campaign's context (brand, personas,
-  account playbooks, format menu, prior ideas), searches its research evidence
+  channel analyses, format menu, prior ideas), searches its research evidence
   and competitor posts, submits up to five sourced content ideas, then writes
   one caption per target account and submits the drafts for voice checks and
   manager review. Never publishes.
@@ -72,12 +72,12 @@ code 1 on any failure. The API key is never printed.
 | `drafts:submit --idea <id> --file drafts.json [--dry-run]` | Validate a DraftsBundle locally, then create or update drafts |
 | `draft:get --id <draftId>` | One draft with caption, voice check and review state |
 | `draft:submit --id <draftId>` | Send a draft to manager review |
-| `brand:context --brand <id>` | Brand voice, pillars, audience and personas, every connected account (playbook, voice), competitors, assets, recent campaigns, evidence sources |
+| `brand:context --brand <id>` | Brand voice, pillars, audience and personas, every connected account (channel analysis, voice, manager notes), competitors, assets, recent campaigns, evidence sources |
 | `personas:draft --brand <id> [--profile <socialProfileId>]` | Up to five personas drafted from an account's past posts; nothing is saved |
 | `personas:set --brand <id> --file personas.json [--dry-run]` | Replace the brand's persona set |
 | `campaigns:create --brand <id> --file setup.json [--dry-run]` | Validate a CampaignSetup locally, then create the campaign |
 | `campaigns:update --campaign <id> --file setup.json [--impact-key <key>] [--dry-run]` | Change any subset of a campaign's setup |
-| `playbook:request --brand <id> --profile <socialProfileId>` | Ask the server to build an account playbook: `{ socialProfileId, status: queued\|building\|ready\|failed, playbookId?, message? }` |
+| `analysis:request --brand <id> --profile <socialProfileId>` | Ask for a channel analysis: `{ socialProfileId, status: none\|analyzing\|ready\|insufficient_data\|failed, note? }`; returns the current status when a run is live or finished within the last hour, otherwise starts one |
 | `threads --campaign <id>` | Threads keywords, the newest analyses (findings with evidence) and discoveries |
 | `schema [--bundle ideation-run\|drafts\|setup\|personas]` | JSON Schema (draft 2020-12) for the bundles |
 
@@ -89,13 +89,18 @@ Ideation needs a campaign with a brief, a goal, a confirmed content language,
 at least one persona (the campaign's or the brand's) and at least one target
 account.
 
-**Account playbooks.** After `context` or `brand:context`, check every target
-account's `playbook`. `null` means none is built, or one is built but not
-approved. Tell the manager, run `playbook:request --brand <id> --profile
-<socialProfileId>` once per such account, and say that approval happens on
-the Connections page of the dashboard ("Build playbook", then "Approve"). Ideation can continue meanwhile: the account still has
-`voice` (tone from the profile analysis), but the server
-ignores `formatPlan` entries for it.
+**Channel analysis.** After `context` or `brand:context`, check every target
+account's `analysisStatus` and `analysis`. The analysis is the account's
+formats (each with a `skeleton`, `openers` and `modelPosts`), `rules` and a
+`fingerprintLine`; a finished analysis is used as soon as it is ready, with no
+approval step. When `analysis` is `null`, or `analysisStatus` is
+`insufficient_data` (too few posts to learn formats from) or `analyzing`, tell
+the manager which account and why, and run `analysis:request --brand <id>
+--profile <socialProfileId>` once per such account (not in a loop). Ideation
+can continue meanwhile: an account without an analysis gets no `formatPlan`
+entry, its captions follow `voice`, and its drafts get no voice check.
+`managerNotes` are the manager's own notes on that channel; they override the
+analysis, the voice and every rule below.
 
 **Existing campaign.** Run `context --campaign <id> --out context.json`. When
 `campaign.brief`, `campaign.goal`, `campaign.contentLanguage`, `personas` and
@@ -158,9 +163,9 @@ file with `--impact-key <impactKey>`.
    (`kind: "manual"`) are read-only here: submitting returns 409
    `manual_campaign`.
 2. **Load the context.** `context --campaign <id> --out context.json`, then
-   read the file and check the account playbooks (see Intake). Note
+   read the file and check each account's channel analysis (see Intake). Note
    `versions` (echo them in the bundle), `personas`,
-   `accounts[].playbook`, `formatMenu`, `assets`, `priorIdeas`, `limits`,
+   `accounts[].analysis`, `accounts[].managerNotes`, `formatMenu`, `assets`, `priorIdeas`, `limits`,
    `preferences.rendered`, `materials` and
    `skills.planning` / `skills.writing` (the workspace's own instructions for
    each stage; follow them). Content language is `campaign.contentLanguage`;
@@ -183,8 +188,8 @@ file with `--impact-key <impactKey>`.
    new run.
 6. **Write drafts** for each accepted idea: one caption per target account
    (`campaign.targetProfileIds`, detailed in `context.accounts`), in the
-   content language, following that account's planned playbook format, model
-   post and voice (rules below). Write the bundle to a file and
+   content language, following that account's planned format, model post and
+   voice (rules below). Write the bundle to a file and
    `drafts:submit --idea <ideaId> --file drafts.json`. The idea keeps its
    status: the manager approves and assigns it in the dashboard.
 7. **Repair.** Read each draft's `voiceCheck`. Fix every `fail` finding and
@@ -250,13 +255,14 @@ such.
 - No ideas is a valid result: send `ideas: []` with a `noIdeasReason` (what
   was missing, e.g. "no evidence in the last 14 days fits the brief").
 
-**Format plan.** For each target account whose `playbook` is not null, add one
+**Format plan.** For each target account whose `analysis` is not null, add one
 `formatPlan` entry: `socialProfileId`, a `formatKey` from
-`playbook.formats[].key`, and `layoutModelPostId`, the `externalId` of the
-example in that format whose shape fits the idea best. Pick the format by what
-the idea needs (a list, an explanation, a contrast, a question) and keep the
-batch close to each account's `share` mix instead of putting every idea in one
-format. Accounts without a playbook get no entry. An opener like "a fan asked
+`analysis.formats[].key`, and `layoutModelPostId`, which must be one of that
+format's `modelPosts[].externalId`: the model post whose shape fits the idea
+best. Pick the format by what the idea needs (a list, an explanation, a
+contrast, a question) and keep the batch close to each account's `share` mix
+instead of putting every idea in one format. Accounts without an analysis get
+no entry. `managerNotes` about formats win over the analysis. An opener like "a fan asked
 me" / 有粉絲問 is allowed only when `openerSource` names the `signalId` that
 records the question; otherwise use another opener. The server rejects an
 idea that restates one of the account's own recent posts (`plan.near_duplicate`).
@@ -291,17 +297,20 @@ drafting session, the manager may have changed the setup since ideation):
 - Content language is `campaign.contentLanguage`, regardless of the user's
   chat language or the account's usual language. Do not draft while it is
   `null`.
-- Playbook account: take the idea's `formatPlan` entry for that account. Follow
-  that format's `skeleton` and its model post (`layoutModelPostId`): its
-  length, paragraphing, line breaks, punctuation (full-width ，。 or not),
-  emoji and hashtag habits, and the way it ends. Follow `playbook.rules`.
-  Never copy the model post's wording, claims or specifics.
-- No playbook (`playbook: null`, i.e. none approved): model the form on
-  `accounts[].voice`, then brand voice
-  (`campaign.voiceOverride`, else `brand.voice`). The server ignores
-  `formatPlan` entries for such an account, and its drafts get no voice check.
-- Priority when they disagree: manager notes and `skills.writing` > channel
-  voice / playbook > brand voice > the craft defaults below.
+- Read the account's `managerNotes` first: they override everything below.
+- Account with an analysis: take the idea's `formatPlan` entry for that
+  account, find that format in `analysis.formats` and follow its `skeleton`
+  and the model post named by `layoutModelPostId` (in that format's
+  `modelPosts`): its length, paragraphing, line breaks, punctuation
+  (full-width ，。 or not), emoji and hashtag habits, and the way it ends.
+  Follow `analysis.rules` and the `fingerprintLine`. Never copy the model
+  post's wording, claims or specifics.
+- Account without an analysis (`analysis: null`): model the form on
+  `accounts[].voice` (the rendered channel voice, with its structural formats
+  when known), then brand voice (`campaign.voiceOverride`, else `brand.voice`).
+  Its drafts get no voice check.
+- Priority when they disagree: `managerNotes` > `skills.writing` > channel
+  analysis / voice > brand voice > the craft defaults below.
 - Post types are `text`, `image`, `video`. A carousel is an `image` post with
   several cards. Drafting covers text and still images only: write the
   still-image version even when the account favours reels.
@@ -315,8 +324,9 @@ drafting session, the manager may have changed the setup since ideation):
   claims the idea's `claims` support. A CTA names what the reader gets; no
   "learn more". Default to zero exclamation points.
 
-**Voice check findings** (`voiceCheck.findings`, only for accounts with an
-approved playbook; `pass` is false when any finding has severity `fail`):
+**Voice check findings** (`voiceCheck.findings`; drafts are voice-checked when
+the account has a ready analysis, otherwise `voiceCheck` is `null`; `pass` is
+false when any finding has severity `fail`):
 
 | Code | Fix |
 |---|---|
@@ -553,9 +563,9 @@ Per-idea rejections in `ideas:submit` (`rejected[].code`):
 | `evidence_invalid` | cite only ids returned by `evidence` for this campaign |
 | `evidence_required` | a non-evergreen `whyNowCategory` needs at least one evidence entry |
 | `plan.unknown_account` | `formatPlan` names an account outside `campaign.targetProfileIds` |
-| `plan.missing_format` | add a `formatPlan` entry for every playbook account |
-| `plan.unknown_format` | use a key from that account's `playbook.formats` |
-| `plan.unknown_model_post` | use an `externalId` from that format's `examples` |
+| `plan.missing_format` | add a `formatPlan` entry for every account whose `analysis` is not null |
+| `plan.unknown_format` | use a key from that account's `analysis.formats` |
+| `plan.unknown_model_post` | use an `externalId` from that format's `modelPosts` |
 | `plan.unsourced_fan_question` | drop the "someone asked me" opener or cite the question in `openerSource` |
 | `plan.near_duplicate` | the idea restates a recent post; find a different angle |
 | `already_proposed` | the topic or primary signal is already in the campaign; do not resubmit |
