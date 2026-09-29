@@ -265,6 +265,27 @@ account's `recentPosts`: the server rejects near-duplicates.
 
 ## Caption rules
 
+Load before writing (all from `context`; re-run `context` at the start of a
+drafting session, the manager may have changed the setup since ideation):
+
+- `campaign.requirements`: `allowedFormats` / `allowedPlatforms` are hard
+  limits, and every `content[].instruction` is a hard rule. After
+  `draft:submit` the server's pre-review checks the caption against these
+  rules and blocks publishing when one fails; `draft:get` shows the verdict in
+  `aiReview`. Fix and resubmit rather than argue with it.
+- `campaign.brief`, `goal`, `topic` and `skills.writing` (the workspace's own
+  writing instructions; follow them).
+- The idea itself: `hook`, `angle`, `coreMessage`, `pov`, `claims` and its
+  `evidence` excerpts. Every fact in the caption traces to a claim or an
+  excerpt; nothing else is stated as fact.
+- `materials` when the idea came from one (event, date, place, reference
+  link): use those details verbatim, never fill gaps from imagination.
+- `assets` when the idea has an `assetId`: name and describe that product or
+  asset exactly as its label and description say.
+- `audience.rendered` (how this account's own readers responded to recent
+  posts) and `preferences.rendered` (formats and angles the manager approved
+  or killed): lean toward what worked, avoid what was killed.
+
 - One caption per target account. Same idea on every account, told the way
   that account talks on that platform. Never copy a sibling caption and never
   change the idea.
