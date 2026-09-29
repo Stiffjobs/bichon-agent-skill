@@ -77,7 +77,7 @@ code 1 on any failure. The API key is never printed.
 | `personas:set --brand <id> --file personas.json [--dry-run]` | Replace the brand's persona set |
 | `campaigns:create --brand <id> --file setup.json [--dry-run]` | Validate a CampaignSetup locally, then create the campaign |
 | `campaigns:update --campaign <id> --file setup.json [--impact-key <key>] [--dry-run]` | Change any subset of a campaign's setup |
-| `playbook:request --brand <id> --profile <socialProfileId>` | Ask the server to build an account playbook: `{ socialProfileId, status: queued\|building\|ready\|failed, playbookId?, usage?, message? }` |
+| `playbook:request --brand <id> --profile <socialProfileId>` | Ask the server to build an account playbook: `{ socialProfileId, status: queued\|building\|ready\|failed, playbookId?, message? }` |
 | `threads --campaign <id>` | Threads keywords, the newest analyses (findings with evidence) and discoveries |
 | `schema [--bundle ideation-run\|drafts\|setup\|personas]` | JSON Schema (draft 2020-12) for the bundles |
 
@@ -93,8 +93,7 @@ account.
 account's `playbook`. `null` means none is built, or one is built but not
 approved. Tell the manager, run `playbook:request --brand <id> --profile
 <socialProfileId>` once per such account, and say that approval happens on
-the Connections page of the dashboard ("Build playbook", then "Approve" as
-shadow or active). Ideation can continue meanwhile: the account still has
+the Connections page of the dashboard ("Build playbook", then "Approve"). Ideation can continue meanwhile: the account still has
 `voice` (tone from the profile analysis) and `recentPosts`, but the server
 ignores `formatPlan` entries for it.
 
