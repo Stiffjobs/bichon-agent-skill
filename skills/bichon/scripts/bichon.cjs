@@ -462,7 +462,7 @@ const SETUP_SCHEMA = {
   ...strictObject(
     {
       name: str(120),
-      brief: str(4000),
+      brief: str(2000),
       goal: str(300, 0),
       topic: str(200, 0),
       audience: str(1000, 0),

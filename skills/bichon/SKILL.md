@@ -509,7 +509,7 @@ CampaignSetup and personas:
 
 | Field | Limit |
 |---|---|
-| `name` / `brief` | 1–120 / 1–4000 chars |
+| `name` / `brief` | 1–120 / 1–2000 chars |
 | `goal` / `topic` / `audience` / `voiceOverride` | 300 / 200 / 1000 / 2000 chars |
 | `contentLanguage` | BCP-47 tag (`en`, `zh-TW`) |
 | `targetProfileIds` | 1–10 distinct connected accounts of the brand |
