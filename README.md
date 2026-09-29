@@ -1,7 +1,7 @@
 # Bichon Skill
 
-Agent skill for running Bichon campaign ideation and caption drafting from a
-local agent (Claude Code, Codex, or any agent that can run a shell command).
+Agent skill for running Bichon campaign intake, ideation and caption drafting
+from a local agent (Claude Code, Codex, or any agent that can run a shell command).
 The agent reads a campaign's context and research through the Bichon agent
 API, does the thinking and writing itself, and submits ideas and drafts back.
 Bichon stays the system of record: managers review, schedule and publish in
@@ -9,7 +9,7 @@ the dashboard. The skill never publishes.
 
 ## Files
 
-- `skills/bichon/SKILL.md`: the skill: workflow, ideation and caption rules, bundle formats, bounds and errors
+- `skills/bichon/SKILL.md`: the skill: intake, workflow, ideation and caption rules, bundle formats, bounds and errors
 - `skills/bichon/scripts/bichon.cjs`: zero-dependency Node CLI (Node 18+)
 - `tests/`: `node:test` suite against a local HTTP stub
 
@@ -49,6 +49,9 @@ A workspace owner or admin creates an API key in the Bichon dashboard
 `BICHON_CONFIG_PATH` and `BICHON_AGENT_BASE_URL` override the saved config;
 `setup --base-url <url>` points the skill at another deployment.
 
+New campaign: ask the agent to set one up ("start an autumn campaign for <brand>"); it reads
+`brand:context` and `personas:draft`, interviews you, and runs `campaigns:create` once you confirm its summary.
+
 ## Example Run
 
 Inside an agent session, ask for it in plain words ("run ideation for the
@@ -72,7 +75,7 @@ $S draft:submit --id <draftId>   # optional: send to manager review
 
 Every command prints `{"ok":true,"data":...}` or, with exit code 1,
 `{"ok":false,"error":{"code","message","details?"}}`. `schema` prints the JSON
-Schemas of both bundles, and `--dry-run` validates a bundle without sending it.
+Schemas of the bundles (ideation run, drafts, campaign setup, personas), and `--dry-run` validates a bundle without sending it.
 
 ## Tests
 

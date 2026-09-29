@@ -3,6 +3,20 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.2.0 (2026-09-29)
+
+- Campaign intake: `brand:context`, `personas:draft`, `personas:set`,
+  `campaigns:create`, `campaigns:update` (`--impact-key`) and `threads`.
+- CampaignSetup and personas files are validated locally against the API
+  bounds (`--dry-run` validates only); `schema --bundle setup|personas`
+  prints their JSON Schemas.
+- A 409 `impact_confirmation` from `campaigns:update` is printed unchanged
+  (with `impactKey` and `impact`) so the agent can confirm with the manager
+  and resubmit.
+- SKILL.md gains an Intake section: fill the gaps of an existing campaign, or
+  interview the manager for a new one against the brand's data and create it
+  after a confirmed summary.
+
 ## 0.1.0 (2026-09-28)
 
 - First release against the Bichon agent API v1 (`/agent/v1`).
