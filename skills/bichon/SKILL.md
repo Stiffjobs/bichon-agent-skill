@@ -1,12 +1,14 @@
 ---
 name: bichon
 description: >
-  Run Bichon campaign ideation and caption drafting locally. Reads a campaign's
-  context (brand, personas, account playbooks, format menu, prior ideas),
-  searches its research evidence and competitor posts, submits up to five
-  sourced content ideas, then writes one caption per target account and
-  submits the drafts for voice checks and manager review. Never publishes.
-last-updated: 2026-09-28
+  Run Bichon campaign intake, ideation and caption drafting locally. Sets up a
+  new campaign by interviewing the manager against the brand's data (or fills
+  the gaps of an existing one), reads a campaign's context (brand, personas,
+  account playbooks, format menu, prior ideas), searches its research evidence
+  and competitor posts, submits up to five sourced content ideas, then writes
+  one caption per target account and submits the drafts for voice checks and
+  manager review. Never publishes.
+last-updated: 2026-09-29
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -70,14 +72,80 @@ code 1 on any failure. The API key is never printed.
 | `drafts:submit --idea <id> --file drafts.json [--dry-run]` | Validate a DraftsBundle locally, then create or update drafts |
 | `draft:get --id <draftId>` | One draft with caption, voice check and review state |
 | `draft:submit --id <draftId>` | Send a draft to manager review |
-| `schema [--bundle ideation-run\|drafts]` | JSON Schema (draft 2020-12) for the bundles |
+| `brand:context --brand <id>` | Brand voice, pillars, audience and personas, every connected account (playbook, voice, recent posts), competitors, assets, recent campaigns, evidence sources |
+| `personas:draft --brand <id> [--profile <socialProfileId>]` | Up to five personas drafted from an account's past posts; nothing is saved |
+| `personas:set --brand <id> --file personas.json [--dry-run]` | Replace the brand's persona set |
+| `campaigns:create --brand <id> --file setup.json [--dry-run]` | Validate a CampaignSetup locally, then create the campaign |
+| `campaigns:update --campaign <id> --file setup.json [--impact-key <key>] [--dry-run]` | Change any subset of a campaign's setup |
+| `threads --campaign <id>` | Threads keywords, the newest analyses (findings with evidence) and discoveries |
+| `schema [--bundle ideation-run\|drafts\|setup\|personas]` | JSON Schema (draft 2020-12) for the bundles |
 
 `--dry-run` runs only the local validation and sends nothing.
+
+## Intake
+
+Ideation needs a campaign with a brief, a goal, a confirmed content language,
+at least one persona (the campaign's or the brand's) and at least one target
+account.
+
+**Existing campaign.** Run `context --campaign <id> --out context.json`. When
+`campaign.brief`, `campaign.goal`, `campaign.contentLanguage`, `personas` and
+`campaign.targetProfileIds` are all filled, go straight to Workflow. Otherwise
+ask the manager only for the missing pieces, write a setup.json holding just
+those fields and run `campaigns:update --campaign <id> --file setup.json`.
+
+**New campaign.**
+
+1. **Gather.** `brand:context --brand <id>`. When `recentCampaigns` has a
+   sibling campaign on the same theme, also read its `evidence` and `threads`;
+   `competitors --brand <id>` shows what performs in the space.
+2. **Draft personas.** `personas:draft --brand <id> --profile <main account>`
+   as a starting point for the reader questions. Skip it when the brand
+   already has personas that fit.
+3. **Interview** the manager in chat, one question at a time, about eight
+   questions in all:
+   - goal, offer, and what success looks like
+   - who the reader is: confirm or edit the drafted persona (who, moment,
+     fears, desires, words they use, what they need from this account, what to
+     avoid); usually one or two, at most five
+   - topics and angles to favour and to avoid
+   - hard rules: must say, never say, claims to avoid, legal
+   - formats and platforms allowed
+   - content language
+   - target accounts
+   - sources: RSS feeds, competitor usernames, Threads keywords, brand assets
+
+   Reuse what `brand:context` already knows: state it and ask for a yes
+   instead of an open question. Take fears, desires and words in the
+   manager's own concrete phrasing. Every hard rule becomes a
+   `requirements.content[]` entry whose `sourceExcerpt` quotes the manager's
+   words verbatim. Stop after about eight questions unless the manager wants
+   more. Never invent facts about the brand; leave a field out rather than
+   guess.
+4. **Confirm and create.** Write setup.json (CampaignSetup, see Bundle
+   formats) and check it with `campaigns:create --dry-run`. Show a one-screen
+   summary (name, goal, language, accounts, personas, rules, sources) and wait
+   for a yes. Then `campaigns:create --brand <id> --file setup.json` returns
+   `{ campaignId, warnings }`. Warnings are sources that could not be added (a
+   feed that failed to load, a competitor not found); the campaign exists, so
+   report them and fix with `campaigns:update`.
+5. **Keep personas.** Personas in setup.json apply to this campaign only. When
+   the manager wants them reused across campaigns, write personas.json and run
+   `personas:set --brand <id> --file personas.json` instead; it replaces the
+   brand's whole set.
+6. Continue with Workflow step 2 using the new `campaignId`.
+
+**Impact confirmation.** When a `campaigns:update` would change existing work,
+the server writes nothing and answers 409 `impact_confirmation`;
+`error.details.impact` lists what would change and `error.details.impactKey`
+confirms it. Show the impact to the manager and, on a yes, resubmit the same
+file with `--impact-key <impactKey>`.
 
 ## Workflow
 
 1. **Pick the campaign.** `brands`, then `campaigns --brand <id>`. Ask one
-   short question if the user's target is ambiguous. Manual campaigns
+   short question if the user's target is ambiguous; run Intake when the
+   campaign does not exist yet. Manual campaigns
    (`kind: "manual"`) are read-only here: submitting returns 409
    `manual_campaign`.
 2. **Load the context.** `context --campaign <id> --out context.json`, then
@@ -86,8 +154,8 @@ code 1 on any failure. The API key is never printed.
    `preferences.rendered`, `audience.rendered`, `materials` and
    `skills.planning` / `skills.writing` (the workspace's own instructions for
    each stage; follow them). Content language is `campaign.contentLanguage`;
-   when it is `null` the campaign setup is unfinished: stop and ask the
-   manager to confirm the content language in the dashboard before drafting.
+   when it is `null` the campaign setup is unfinished: ask the manager for it
+   and set it with `campaigns:update` (Intake) before drafting.
 3. **Research.** Run `evidence --campaign <id>` for the newest signals and
    `evidence --q "<angle>"` for each angle you are considering. Run
    `competitors --brand <id>` for what performs in the space. Evidence and
@@ -308,6 +376,73 @@ DraftsBundle (`drafts:submit`), one entry per target account:
 }
 ```
 
+CampaignSetup (`campaigns:create`; `campaigns:update` takes any subset of
+these fields). `sourceProfileId` is the account whose own posts feed research;
+`personas` overrides the brand's personas for this campaign and `null` clears
+the override; `keywords` are the Threads search keywords.
+
+```json
+{
+  "name": "Autumn home-brew series",
+  "brief": "Six weeks of practical pour-over help for people brewing at home, leading into the autumn single-origin launch on 20 October.",
+  "goal": "More saves on how-to posts and 200 pre-orders of the autumn single origin.",
+  "topic": "Better pour-over at home",
+  "audience": "Home brewers one or two years in, with a kettle and a hand grinder.",
+  "contentLanguage": "en",
+  "targetProfileIds": ["<instagram socialProfileId>", "<threads socialProfileId>"],
+  "sourceProfileId": "<instagram socialProfileId>",
+  "personas": [
+    {
+      "name": "Weekday home brewer",
+      "who": "Office worker who brews one pour-over before work and wants it to taste like the café.",
+      "moment": "Standing over a sour cup at 7:40 with ten minutes to spare",
+      "fears": ["good coffee needs expensive gear", "wasting a bag of good beans"],
+      "desires": ["a café-quality cup with the kettle they own"],
+      "goal": "A reliable morning cup without a new hobby.",
+      "words": ["sour", "bitter", "my grinder"],
+      "needFromAccount": "One fix at a time they can try tomorrow.",
+      "avoid": "Barista jargon and gear upsells."
+    }
+  ],
+  "requirements": {
+    "allowedPlatforms": ["instagram", "threads"],
+    "allowedFormats": ["image", "carousel", "text"],
+    "content": [
+      { "instruction": "Never call the beans organic.", "sourceExcerpt": "we're not certified, so never say organic" },
+      { "instruction": "Mention the 20 October launch only from 6 October on.", "sourceExcerpt": "don't tease the launch before October 6" }
+    ]
+  },
+  "keywords": ["pour over", "sour coffee", "hand grinder"],
+  "sources": {
+    "rssUrls": ["https://example.com/brew-guides/feed.xml"],
+    "competitorUsernames": [{ "provider": "instagram", "username": "example_roasters" }],
+    "assetIds": ["<assetId from brand:context>"],
+    "ownPosts": true,
+    "threadsTrends": true
+  }
+}
+```
+
+Personas file (`personas:set`); the server assigns the keys `p1`..`p5`:
+
+```json
+{
+  "personas": [
+    {
+      "name": "Weekday home brewer",
+      "who": "Office worker who brews one pour-over before work and wants it to taste like the café.",
+      "moment": "Standing over a sour cup at 7:40 with ten minutes to spare",
+      "fears": ["good coffee needs expensive gear"],
+      "desires": ["a café-quality cup with the kettle they own"],
+      "goal": "A reliable morning cup without a new hobby.",
+      "words": ["sour", "my grinder"],
+      "needFromAccount": "One fix at a time they can try tomorrow.",
+      "avoid": "Barista jargon and gear upsells."
+    }
+  ]
+}
+```
+
 ## Bounds
 
 The helper checks these before sending and names the offending path.
@@ -329,12 +464,34 @@ The helper checks these before sending and names the offending path.
 | draft `title` / `variantNote` / `mediaNotes` | 200 / 1000 / 2000 chars |
 | request body | 1 MB |
 
-Required: `format`, `agent.name`, `mode`, `briefVersion`,
-`sourcePolicyVersion`, `ideas`, and every idea field shown in the example
+Required in an IdeationRunBundle: `format`, `agent.name`, `mode`,
+`briefVersion`, `sourcePolicyVersion`, `ideas`, and every idea field shown in the example
 except `evidence[].versionId`, `evidence[].excerpt`, `claims[].evidence` and
 `formatPlan[].openerSource`. `primaryEvidence` is required whenever `evidence`
 is not empty, `assetReason` whenever `assetId` is set, and a non-evergreen
 `whyNowCategory` needs at least one evidence entry. Unknown fields are rejected.
+
+CampaignSetup and personas:
+
+| Field | Limit |
+|---|---|
+| `name` / `brief` | 1–120 / 1–4000 chars |
+| `goal` / `topic` / `audience` / `voiceOverride` | 300 / 200 / 1000 / 2000 chars |
+| `contentLanguage` | BCP-47 tag (`en`, `zh-TW`) |
+| `targetProfileIds` | 1–10 distinct connected accounts of the brand |
+| `personas` | ≤ 5 (setup and personas file) |
+| persona `name` | 1–80 chars |
+| persona `who` / `moment` / `goal` / `needFromAccount` / `avoid` | 300 chars each |
+| persona `fears` / `desires` / `words` | ≤ 8 items, 120 chars each |
+| `requirements.allowedPlatforms` | `facebook`, `instagram`, `threads`; distinct |
+| `requirements.allowedFormats` | `text`, `image`, `carousel`, `video`, `reel`, `link`; distinct |
+| `requirements.content` | ≤ 20; `instruction` and `sourceExcerpt` 1–500 chars each |
+| `keywords` | ≤ 20 distinct, 60 chars each |
+| `sources.rssUrls` / `competitorUsernames` / `assetIds` | ≤ 10 / 10 / 20 |
+
+Create requires `name`, `brief`, `contentLanguage` and `targetProfileIds`;
+update needs at least one field. Every persona field except `key` is required
+(text may be empty). Unknown fields are rejected.
 
 ## Errors
 
@@ -349,6 +506,7 @@ is not empty, `assetReason` whenever `assetId` is set, and a non-evergreen
 | 404 | `not_found` | Id does not exist, is in another workspace, or the brand is archived |
 | 409 | `manual_campaign` | Manual campaigns take no agent runs or drafts |
 | 409 | `stale_versions` | Brief or source policy changed; reload `context`, rebuild |
+| 409 | `impact_confirmation` | The setup change would affect existing work; show `details.impact`, then resubmit with `--impact-key <details.impactKey>` |
 | 409 | `idea_status` | Idea is killed or done; drafts need proposed, approved or assigned |
 | 409 | `draft_status` | Draft is past `drafting` / `changes_requested`, or submit was refused (message says why) |
 | 413 | `payload_too_large` | Body over 1 MB; send fewer ideas or drafts per call |
@@ -385,7 +543,8 @@ least one accepted idea ends `succeeded`.
   project files.
 - Prefer targeted `evidence --q` searches over pulling everything; report
   which searches you ran when summarizing a run.
-- Report back: run id, accepted ideas with titles, rejections with codes,
-  draft ids with voice-check status, and anything left for the manager.
+- Report back: campaign id and setup warnings after intake, run id,
+  accepted ideas with titles, rejections with codes, draft ids with
+  voice-check status, and anything left for the manager.
 - This skill never publishes, schedules or approves. Hand those to the
   manager in the Bichon dashboard.
