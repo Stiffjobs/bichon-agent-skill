@@ -37,7 +37,7 @@ test('maps each read command to its route and query', async () => {
     [['campaigns', '--brand', 'b1', '--status', 'archived'], 'GET', '/agent/v1/brands/b1/campaigns', { status: 'archived' }],
     [['context', '--campaign', 'c1'], 'GET', '/agent/v1/campaigns/c1/context', {}],
     [['evidence', '--campaign', 'c1'], 'GET', '/agent/v1/campaigns/c1/evidence', {}],
-    [['evidence', '--campaign', 'c1', '--q', 'sour coffee & grind', '--limit', '50', '--source', 's9'], 'GET', '/agent/v1/campaigns/c1/evidence', { q: 'sour coffee & grind', limit: '50', sourceId: 's9' }],
+    [['evidence', '--campaign', 'c1', '--q', 'sour coffee & grind', '--limit', '50'], 'GET', '/agent/v1/campaigns/c1/evidence', { q: 'sour coffee & grind', limit: '50' }],
     [['competitors', '--brand', 'b1'], 'GET', '/agent/v1/brands/b1/competitors', {}],
     [['ideas', '--campaign', 'c1'], 'GET', '/agent/v1/campaigns/c1/ideas', {}],
     [['ideas', '--campaign', 'c1', '--status', 'killed'], 'GET', '/agent/v1/campaigns/c1/ideas', { status: 'killed' }],

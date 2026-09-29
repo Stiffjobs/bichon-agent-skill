@@ -65,7 +65,7 @@ code 1 on any failure. The API key is never printed.
 | `brands` | Brands with language, active campaign count, connected accounts |
 | `campaigns --brand <id> [--status active\|archived]` | Campaigns with brief excerpt, content language, targets, counts |
 | `context --campaign <id> [--out context.json]` | The full ContextBundle; `--out` writes it to a file and prints a summary with `versions` |
-| `evidence --campaign <id> [--q <text>] [--limit 1..50] [--kind article\|competitor_post\|threads_post] [--source <id>]` | Analyzed research items (useful, relevant to the current brief) with `pendingCount`; `--q` is a semantic search |
+| `evidence --campaign <id> [--q <text>] [--limit 1..50] [--kind article\|competitor_post\|threads_post]` | Analyzed research items (useful, relevant to the current brief) as `{ items, pendingCount }`, each with `signalId`/`versionId` or `discoveryId` to cite; `--q` is a semantic search |
 | `competitors --brand <id>` | Tracked competitors with analyzed post counts, themes, engagement reads and useful share |
 | `ideas --campaign <id> [--status proposed\|approved\|assigned\|killed\|done]` | Ideas with their drafts (default: all but killed) |
 | `ideas:submit --campaign <id> --file run.json [--dry-run]` | Validate an IdeationRunBundle locally, then create the run |
@@ -744,6 +744,7 @@ Per-idea rejections in `ideas:submit` (`rejected[].code`):
 | `asset_not_bound` | use an `assets[].assetId` or `null` |
 | `evidence_invalid` | cite only ids returned by `evidence` for this campaign |
 | `evidence_not_analyzed` | a cited item has no analysis for the current brief, or was analyzed off-topic; analyze pending items (Research) or cite another |
+| `competitor_performance_unsupported` | `competitor_performance` needs a cited competitor post whose analysis has an `engagementRead` |
 | `evidence_required` | a non-evergreen `whyNowCategory` needs at least one evidence entry; `competitor_performance` needs a cited competitor post whose analysis has an `engagementRead` |
 | `plan.unknown_account` | `formatPlan` names an account outside `campaign.targetProfileIds` |
 | `plan.missing_format` | add a `formatPlan` entry for every account whose `analysis` is not null |
@@ -761,6 +762,9 @@ Per-item rejections in `research:submit` (`rejected[].code`):
 | Code | Fix |
 |---|---|
 | `not_leased` | the item is not leased to this key for this campaign (lease expired after 20 minutes, or another run holds it); it returns in a later `research:pending` batch |
+| `not_found` | the `itemRef` no longer exists (source deleted); drop it |
+| `duplicate_item` | the same `itemRef` twice in one bundle; keep one |
+| `field_not_allowed` | `engagementRead` on an article or containing digits, or `themes` on anything but a competitor post |
 
 ## Notes for agents
 
