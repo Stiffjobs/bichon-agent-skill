@@ -83,3 +83,4 @@ node --test tests/
 ## License
 
 Released under the MIT License. See `LICENSE`.
+# bichon-agent-skill
