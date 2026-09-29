@@ -32,6 +32,9 @@ const IDEA_STATUSES = ['proposed', 'approved', 'assigned', 'killed', 'done'];
 const WHY_NOW_CATEGORIES = ['timely_news', 'growing_discussion', 'competitor_performance', 'evergreen'];
 const MODES = ['evidence', 'brief', 'mixed'];
 const POST_TYPES = ['image', 'video', 'text'];
+const PLATFORMS = ['facebook', 'instagram', 'threads'];
+const POST_FORMATS = ['text', 'image', 'carousel', 'video', 'reel', 'link'];
+const COMPETITOR_PROVIDERS = ['instagram', 'threads'];
 const HTTP_CODES = {
   400: 'invalid_request',
   401: 'unauthorized',
@@ -297,6 +300,8 @@ function segment(value) {
 
 const str = (maxLength, minLength = 1) => ({ type: 'string', minLength, maxLength });
 const nullable = (schema) => ({ ...schema, type: [schema.type, 'null'] });
+const list = (items, maxItems, extra = {}) => ({ type: 'array', maxItems, items, ...extra });
+const strictObject = (properties, required = []) => ({ type: 'object', additionalProperties: false, required, properties });
 const agentSchema = {
   type: 'object',
   additionalProperties: false,
@@ -423,6 +428,71 @@ const DRAFTS_SCHEMA = {
   },
 };
 
+const PERSONA_SCHEMA = strictObject(
+  {
+    key: str(20),
+    name: str(80),
+    who: str(300, 0),
+    moment: str(300, 0),
+    fears: list(str(120), 8),
+    desires: list(str(120), 8),
+    goal: str(300, 0),
+    words: list(str(120), 8),
+    needFromAccount: str(300, 0),
+    avoid: str(300, 0),
+  },
+  ['name', 'who', 'moment', 'fears', 'desires', 'goal', 'words', 'needFromAccount', 'avoid'],
+);
+
+const PERSONAS_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'urn:bichon:schema:personas:v1',
+  title: 'PersonasFile',
+  description: 'Body of personas:set. Keys are reassigned p1..p5 by the server.',
+  ...strictObject({ personas: list(PERSONA_SCHEMA, 5, { minItems: 1 }) }, ['personas']),
+};
+
+const idList = (maxItems, extra) => list(str(200), maxItems, { uniqueItems: true, ...extra });
+
+const SETUP_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'urn:bichon:schema:campaign-setup:v1',
+  title: 'CampaignSetup',
+  description: 'Body of campaigns:create. campaigns:update takes the same object with every field optional.',
+  ...strictObject(
+    {
+      name: str(120),
+      brief: str(4000),
+      goal: str(300, 0),
+      topic: str(200, 0),
+      audience: str(1000, 0),
+      voiceOverride: str(2000, 0),
+      contentLanguage: { ...str(80), pattern: '^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$', description: 'a BCP-47 language tag such as en or zh-TW' },
+      targetProfileIds: idList(10, { minItems: 1 }),
+      sourceProfileId: nullable(str(200)),
+      personas: nullable(list(PERSONA_SCHEMA, 5)),
+      requirements: strictObject({
+        allowedPlatforms: list({ enum: PLATFORMS }, PLATFORMS.length, { minItems: 1, uniqueItems: true }),
+        allowedFormats: list({ enum: POST_FORMATS }, POST_FORMATS.length, { minItems: 1, uniqueItems: true }),
+        content: list(strictObject({ instruction: str(500), sourceExcerpt: str(500) }, ['instruction', 'sourceExcerpt']), 20),
+      }),
+      keywords: list(str(60), 20, { uniqueItems: true }),
+      sources: strictObject({
+        rssUrls: list({ ...str(2000), pattern: '^https?://\\S+$', description: 'an http(s) URL' }, 10, { uniqueItems: true }),
+        competitorUsernames: list(
+          strictObject({ provider: { enum: COMPETITOR_PROVIDERS }, username: str(100) }, ['provider', 'username']),
+          10,
+          { uniqueItems: true },
+        ),
+        assetIds: idList(20),
+        ownPosts: { type: 'boolean' },
+        threadsTrends: { type: 'boolean' },
+      }),
+    },
+    ['name', 'brief', 'contentLanguage', 'targetProfileIds'],
+  ),
+};
+
 function typeOf(value) {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
@@ -443,6 +513,7 @@ function validate(schema, value, at, issues) {
   if (typeof value === 'string') {
     if (schema.minLength !== undefined && value.trim().length < schema.minLength) add('must not be empty');
     if (schema.maxLength !== undefined && value.length > schema.maxLength) add(`is ${value.length} characters; max ${schema.maxLength}`);
+    if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) add(schema.description ? `must be ${schema.description}` : `must match ${schema.pattern}`);
   }
   if (typeof value === 'number') {
     if (schema.minimum !== undefined && value < schema.minimum) add(`must be ≥ ${schema.minimum}`);
@@ -451,6 +522,7 @@ function validate(schema, value, at, issues) {
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) add(`needs at least ${schema.minItems} item(s)`);
     if (schema.maxItems !== undefined && value.length > schema.maxItems) add(`has ${value.length} items; max ${schema.maxItems}`);
+    if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) add('has duplicate items');
     if (schema.items) value.forEach((item, index) => validate(schema.items, item, `${at}[${index}]`, issues));
   }
   if (value && typeof value === 'object' && !Array.isArray(value) && schema.properties) {
@@ -512,16 +584,26 @@ function checkDraftsBundle(bundle, issues) {
   });
 }
 
+function checkSetupPatch(setup, issues) {
+  if (Object.keys(setup).length === 0) issues.push({ path: '(root)', message: 'sets no fields; name at least one to change' });
+}
+
+const countOf = (value) => (Array.isArray(value) ? value.length : 0);
+
 const BUNDLES = {
-  'ideation-run': { schema: IDEATION_RUN_SCHEMA, check: checkIdeationBundle },
-  drafts: { schema: DRAFTS_SCHEMA, check: checkDraftsBundle },
+  'ideation-run': { schema: IDEATION_RUN_SCHEMA, check: checkIdeationBundle, counts: (bundle) => ({ ideas: bundle.ideas.length }) },
+  drafts: { schema: DRAFTS_SCHEMA, check: checkDraftsBundle, counts: (bundle) => ({ drafts: bundle.drafts.length }) },
+  setup: { schema: SETUP_SCHEMA, counts: (setup) => ({ fields: Object.keys(setup).length, personas: countOf(setup.personas), keywords: countOf(setup.keywords) }) },
+  'setup-patch': { schema: { ...SETUP_SCHEMA, required: [] }, check: checkSetupPatch, counts: (setup) => ({ fields: Object.keys(setup).length }) },
+  personas: { schema: PERSONAS_SCHEMA, counts: (file) => ({ personas: file.personas.length }) },
 };
+const SCHEMA_BUNDLES = ['ideation-run', 'drafts', 'setup', 'personas'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
   const { schema, check } = BUNDLES[kind];
   validate(schema, bundle, '', issues);
-  if (bundle && typeof bundle === 'object' && !Array.isArray(bundle)) check(bundle, issues);
+  if (check && bundle && typeof bundle === 'object' && !Array.isArray(bundle)) check(bundle, issues);
   return issues;
 }
 
@@ -609,17 +691,16 @@ function get(route, query) {
   return withConfig(async (parsed, config) => emit(await api(config, 'GET', route(parsed), { query: query && query(parsed) })));
 }
 
-async function submitBundle(parsed, config, kind, route) {
+async function submitBundle(parsed, config, kind, route, { method = 'POST', extra = {} } = {}) {
   const bundle = loadBundle(parsed, kind);
   if (parsed['dry-run']) {
-    return succeed({
-      valid: true,
-      dryRun: true,
-      bundle: kind,
-      counts: kind === 'drafts' ? { drafts: bundle.drafts.length } : { ideas: bundle.ideas.length },
-    });
+    return succeed({ valid: true, dryRun: true, bundle: kind, counts: BUNDLES[kind].counts(bundle) });
   }
-  return emit(await api(config, 'POST', route, { body: bundle }));
+  return emit(await api(config, method, route, { body: { ...bundle, ...extra } }));
+}
+
+function sendFile(kind, route, options) {
+  return withConfig((parsed, config) => submitBundle(parsed, config, kind, route(parsed), options && options(parsed)));
 }
 
 const COMMANDS = {
@@ -688,11 +769,23 @@ const COMMANDS = {
   'draft:submit': withConfig(async (parsed, config) => (
     emit(await api(config, 'POST', `/drafts/${segment(requireOption(parsed, 'id'))}/submit`, { body: {} }))
   )),
+  'brand:context': get((parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/context`),
+  'personas:draft': get(
+    (parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/personas/draft`,
+    (parsed) => ({ socialProfileId: optionalOption(parsed, 'profile') }),
+  ),
+  'personas:set': sendFile('personas', (parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/personas`, () => ({ method: 'PUT' })),
+  'campaigns:create': sendFile('setup', (parsed) => `/brands/${segment(requireOption(parsed, 'brand'))}/campaigns`),
+  'campaigns:update': sendFile('setup-patch', (parsed) => `/campaigns/${segment(requireOption(parsed, 'campaign'))}`, (parsed) => {
+    const impactKey = optionalOption(parsed, 'impact-key');
+    return { method: 'PATCH', extra: impactKey === undefined ? {} : { impactKey } };
+  }),
+  threads: get((parsed) => `/campaigns/${segment(requireOption(parsed, 'campaign'))}/threads`),
   schema: async (args) => {
     const parsed = parseArgs(args);
-    const bundle = enumOption(parsed, 'bundle', Object.keys(BUNDLES));
+    const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
     if (bundle) return succeed(BUNDLES[bundle].schema);
-    return succeed({ ideationRun: IDEATION_RUN_SCHEMA, drafts: DRAFTS_SCHEMA });
+    return succeed({ ideationRun: IDEATION_RUN_SCHEMA, drafts: DRAFTS_SCHEMA, setup: SETUP_SCHEMA, personas: PERSONAS_SCHEMA });
   },
   help: async () => succeed({
     usage: `${SCRIPT} <command> [--options] [--pretty]`,
@@ -711,7 +804,13 @@ const COMMANDS = {
       'drafts:submit': '--idea <ideaId> --file <bundle.json> [--dry-run]',
       'draft:get': '--id <draftId>',
       'draft:submit': '--id <draftId>',
-      schema: '[--bundle ideation-run|drafts]',
+      'brand:context': '--brand <brandId>',
+      'personas:draft': '--brand <brandId> [--profile <socialProfileId>]',
+      'personas:set': '--brand <brandId> --file <personas.json> [--dry-run]',
+      'campaigns:create': '--brand <brandId> --file <setup.json> [--dry-run]',
+      'campaigns:update': '--campaign <campaignId> --file <setup.json> [--impact-key <key>] [--dry-run]',
+      threads: '--campaign <campaignId>',
+      schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
     env: ['BICHON_AGENT_API_KEY', 'BICHON_AGENT_BASE_URL', 'BICHON_CONFIG_PATH'],
     defaultBaseUrl: DEFAULT_BASE_URL,
