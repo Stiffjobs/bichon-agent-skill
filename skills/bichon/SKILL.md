@@ -77,6 +77,7 @@ code 1 on any failure. The API key is never printed.
 | `personas:set --brand <id> --file personas.json [--dry-run]` | Replace the brand's persona set |
 | `campaigns:create --brand <id> --file setup.json [--dry-run]` | Validate a CampaignSetup locally, then create the campaign |
 | `campaigns:update --campaign <id> --file setup.json [--impact-key <key>] [--dry-run]` | Change any subset of a campaign's setup |
+| `playbook:request --brand <id> --profile <socialProfileId>` | Ask the server to build an account playbook: `{ socialProfileId, status: queued\|building\|ready\|failed, playbookId?, usage?, message? }` |
 | `threads --campaign <id>` | Threads keywords, the newest analyses (findings with evidence) and discoveries |
 | `schema [--bundle ideation-run\|drafts\|setup\|personas]` | JSON Schema (draft 2020-12) for the bundles |
 
@@ -87,6 +88,15 @@ code 1 on any failure. The API key is never printed.
 Ideation needs a campaign with a brief, a goal, a confirmed content language,
 at least one persona (the campaign's or the brand's) and at least one target
 account.
+
+**Account playbooks.** After `context` or `brand:context`, check every target
+account's `playbook`. `null` means none is built, or one is built but not
+approved. Tell the manager, run `playbook:request --brand <id> --profile
+<socialProfileId>` once per such account, and say that approval happens on
+the Connections page of the dashboard ("Build playbook", then "Approve" as
+shadow or active). Ideation can continue meanwhile: the account still has
+`voice` (tone from the profile analysis) and `recentPosts`, but the server
+ignores `formatPlan` entries for it.
 
 **Existing campaign.** Run `context --campaign <id> --out context.json`. When
 `campaign.brief`, `campaign.goal`, `campaign.contentLanguage`, `personas` and
@@ -149,7 +159,8 @@ file with `--impact-key <impactKey>`.
    (`kind: "manual"`) are read-only here: submitting returns 409
    `manual_campaign`.
 2. **Load the context.** `context --campaign <id> --out context.json`, then
-   read the file. Note `versions` (echo them in the bundle), `personas`,
+   read the file and check the account playbooks (see Intake). Note
+   `versions` (echo them in the bundle), `personas`,
    `accounts[].playbook`, `formatMenu`, `assets`, `priorIdeas`, `limits`,
    `preferences.rendered`, `audience.rendered`, `materials` and
    `skills.planning` / `skills.writing` (the workspace's own instructions for
@@ -267,8 +278,10 @@ account's `recentPosts`: the server rejects near-duplicates.
   length, paragraphing, line breaks, punctuation (full-width ，。 or not),
   emoji and hashtag habits, and the way it ends. Follow `playbook.rules`.
   Never copy the model post's wording, claims or specifics.
-- No playbook: model the form on `accounts[].voice` and `recentPosts` the same
-  way, then brand voice (`campaign.voiceOverride`, else `brand.voice`).
+- No playbook (`playbook: null`, i.e. none approved): model the form on
+  `accounts[].voice` and `recentPosts` the same way, then brand voice
+  (`campaign.voiceOverride`, else `brand.voice`). The server ignores
+  `formatPlan` entries for such an account, and its drafts get no voice check.
 - Priority when they disagree: manager notes and `skills.writing` > channel
   voice / playbook > brand voice > the craft defaults below.
 - Post types are `text`, `image`, `video`. A carousel is an `image` post with

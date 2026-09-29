@@ -75,6 +75,21 @@ test('sends setup and personas files with their methods and routes', async () =>
   assert.deepEqual(saved.requests[0].body, personas);
 });
 
+test('playbook:request posts without a body to the account playbook route', async () => {
+  server.reply(() => ok({ socialProfileId: 'sp1', status: 'queued' }));
+  const result = await call(['playbook:request', '--brand', 'b1', '--profile', 'sp1']);
+  server.reply(() => ok({ campaignId: 'c9', warnings: [] }));
+  assert.equal(result.code, 0, result.stdout);
+  assert.equal(result.requests.length, 1);
+  assert.equal(result.requests[0].method, 'POST');
+  assert.equal(result.requests[0].path, '/agent/v1/brands/b1/accounts/sp1/playbook');
+  assert.equal(result.requests[0].body, undefined);
+  assert.deepEqual(result.json.data, { socialProfileId: 'sp1', status: 'queued' });
+  const missing = await call(['playbook:request', '--brand', 'b1']);
+  assert.equal(missing.code, 1);
+  assert.equal(missing.requests.length, 0);
+});
+
 test('--impact-key is added to the update body', async () => {
   const result = await update({ contentLanguage: 'zh-TW' }, ['--impact-key', 'impact_abc']);
   assert.equal(result.code, 0, result.stdout);

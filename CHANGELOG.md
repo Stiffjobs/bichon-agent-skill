@@ -13,6 +13,11 @@ Run `npx skills update bichon` to get the latest.
 - A 409 `impact_confirmation` from `campaigns:update` is printed unchanged
   (with `impactKey` and `impact`) so the agent can confirm with the manager
   and resubmit.
+- `playbook:request` asks the server to build an account playbook; SKILL.md
+  checks every target account's playbook after loading context and points the
+  manager to the Connections page to approve it. Without an approved playbook
+  the account keeps `voice` and `recentPosts`, and its `formatPlan` entries
+  are ignored.
 - SKILL.md gains an Intake section: fill the gaps of an existing campaign, or
   interview the manager for a new one against the brand's data and create it
   after a confirmed summary.
