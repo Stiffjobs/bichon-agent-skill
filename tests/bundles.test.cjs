@@ -126,6 +126,7 @@ test('rejects a caption over 5000 characters and duplicate accounts', async () =
 
 test('a draft responseNote is optional and at most 1000 characters', async () => {
   const bundle = clone(skillExamples().drafts);
+  assert.ok(bundle.drafts.some((draft) => 'responseNote' in draft));
   bundle.drafts[0].responseNote = 'n'.repeat(1000);
   const fits = await submitDrafts(bundle);
   assert.equal(fits.code, 0, fits.stdout);
