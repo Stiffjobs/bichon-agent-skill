@@ -29,7 +29,7 @@ const SENSITIVE_FIELD_NAMES = new Set([
 ]);
 const CAMPAIGN_STATUSES = ['active', 'archived'];
 const IDEA_STATUSES = ['proposed', 'approved', 'assigned', 'killed', 'done'];
-const REVIEW_STATUSES = ['changes_requested', 'submitted', 'approved', 'all'];
+const REVIEW_STATUSES = ['changes_requested', 'rejected', 'submitted', 'approved', 'all'];
 const WHY_NOW_CATEGORIES = ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen'];
 const MODES = ['evidence', 'brief', 'mixed'];
 const POST_TYPES = ['image', 'video', 'text'];

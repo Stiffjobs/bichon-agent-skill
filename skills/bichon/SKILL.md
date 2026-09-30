@@ -74,7 +74,7 @@ code 1 on any failure. The API key is never printed.
 | `drafts:submit --idea <id> --file drafts.json [--dry-run]` | Validate a DraftsBundle locally, then create or update drafts |
 | `draft:get --id <draftId>` | One draft with caption, voice check, review state, `revision` and `requests` (review comments on the current revision) |
 | `draft:submit --id <draftId>` | Send a draft to manager review; each submit creates the next revision |
-| `reviews --campaign <id> [--status changes_requested\|submitted\|approved\|all] [--history]` | The campaign's drafts under review (default `changes_requested`, at most 50): `{ drafts: [{ draftId, ideaId, ideaTitle, socialProfileId, username, status, revision, caption, reviewNote, requests }], truncated }`; `requests` are the comments on the current revision (`--history`: every revision), each `{ commentId, author: manager\|client, body, decision: approve\|request_changes\|null, revision, createdAt, images: [{ url, width, height, expiresAt }] }` |
+| `reviews --campaign <id> [--status changes_requested\|rejected\|submitted\|approved\|all] [--history]` | The campaign's drafts under review (default `changes_requested`, at most 200): `{ drafts: [{ draftId, ideaId, ideaTitle, socialProfileId, username, status, revision, caption, reviewNote, requests }], truncated }`; `requests` are the comments on the current revision (`--history`: every revision), each `{ commentId, author: manager\|client, body, decision: approve\|request_changes\|reject\|null, revision, createdAt, images: [{ url, width, height, expiresAt }] }` |
 | `brand:context --brand <id>` | Brand voice, pillars, audience and personas, every connected account (channel analysis, voice, manager notes), competitors, assets, recent campaigns, evidence sources |
 | `personas:draft --brand <id> [--profile <socialProfileId>]` | Up to five personas drafted from an account's past posts; nothing is saved |
 | `personas:set --brand <id> --file personas.json [--dry-run]` | Replace the brand's persona set |
@@ -224,8 +224,10 @@ file with `--impact-key <impactKey>`.
 9. **Review loop.** After the manager (or the client) reviews the drafts in
    the dashboard (campaign → Review posts), run `reviews --campaign <id>`.
    It lists the drafts in `changes_requested` with their `requests`. Requests
-   whose `decision` is `approve` need nothing. For every draft with other
-   requests:
+   whose `decision` is `approve` need nothing. Run it again with
+   `--status rejected`: a rejected draft carries a `reject` request saying
+   why, and the manager expects a rewrite or a different angle, not a light
+   edit; treat it like a change request. For every draft with requests:
    1. Read each request's `body` and its `images`. Image URLs expire
       (`expiresAt`, about an hour): fetch each image promptly and look at it.
       It may show the desired layout or a marked-up screenshot of the post.
