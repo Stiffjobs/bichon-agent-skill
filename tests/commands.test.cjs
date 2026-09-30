@@ -153,7 +153,7 @@ test('rejects bad options before any request', async () => {
     ['drafts:submit', '--file', 'x.json'],
     ['draft:get'],
     ['reviews'],
-    ['reviews', '--campaign', 'c1', '--status', 'rejected'],
+    ['reviews', '--campaign', 'c1', '--status', 'pending'],
     ['reviews', '--campaign', 'c1', '--history=0'],
     ['brands', 'stray'],
     ['publish'],
