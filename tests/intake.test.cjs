@@ -53,6 +53,20 @@ test('maps the intake read commands to their routes', async () => {
   }
 });
 
+test('threads prints keywords, analyzed posts and the pending count unchanged', async () => {
+  const threads = {
+    keywords: [{ sourceId: 'src1', keyword: 'pour over', rationale: 'The core question.', status: 'active' }],
+    items: [{ signalId: 's1', versionId: 'v1', discoveryId: null, kind: 'threads_post', summary: 'A home brewer asks why the cup is sour.' }],
+    pendingCount: 3,
+  };
+  server.reply(() => ok(threads));
+  const result = await call(['threads', '--campaign', 'c1']);
+  server.reply(() => ok({ campaignId: 'c9', warnings: [] }));
+  assert.equal(result.code, 0);
+  assert.deepEqual(result.json, { ok: true, data: threads });
+  assert.deepEqual(Object.keys(result.json.data).sort(), ['items', 'keywords', 'pendingCount']);
+});
+
 test('sends setup and personas files with their methods and routes', async () => {
   const { setup, personas } = skillExamples();
   const created = await create(setup);

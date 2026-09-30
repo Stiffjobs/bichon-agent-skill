@@ -124,6 +124,17 @@ test('rejects a caption over 5000 characters and duplicate accounts', async () =
   assertRejected(await submitDrafts(bundle), ['drafts[0].caption', 'drafts[1].socialProfileId', 'drafts[1].postType']);
 });
 
+test('a draft responseNote is optional and at most 1000 characters', async () => {
+  const bundle = clone(skillExamples().drafts);
+  bundle.drafts[0].responseNote = 'n'.repeat(1000);
+  const fits = await submitDrafts(bundle);
+  assert.equal(fits.code, 0, fits.stdout);
+  assert.equal(fits.requests[0].body.drafts[0].responseNote, 'n'.repeat(1000));
+  bundle.drafts[0].responseNote = 'n'.repeat(1001);
+  bundle.drafts[1].responseNote = 42;
+  assertRejected(await submitDrafts(bundle), ['drafts[0].responseNote', 'drafts[1].responseNote']);
+});
+
 test('rejects unreadable or malformed bundle files as invalid requests', async () => {
   const broken = path.join(dir, 'broken.json');
   fs.writeFileSync(broken, '{ "format": ');
@@ -145,6 +156,8 @@ test('schema prints draft 2020-12 schemas for both bundles', async () => {
   assert.deepEqual(idea.whyNowCategory.enum, ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen']);
   assert.deepEqual(idea.evidence.items.oneOf.map((branch) => branch.required), [['signalId', 'reason'], ['discoveryId', 'reason']]);
   assert.equal(drafts.properties.drafts.items.properties.caption.maxLength, 5000);
+  assert.equal(drafts.properties.drafts.items.properties.responseNote.maxLength, 1000);
+  assert.ok(!drafts.properties.drafts.items.required.includes('responseNote'));
   const one = await run(['schema', '--bundle', 'drafts']);
   assert.deepEqual(one.json.data, drafts);
 });

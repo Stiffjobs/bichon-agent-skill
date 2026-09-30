@@ -44,6 +44,9 @@ test('maps each read command to its route and query', async () => {
     [['run:get', '--id', 'r1'], 'GET', '/agent/v1/ideation-runs/r1', {}],
     [['draft:get', '--id', 'd1'], 'GET', '/agent/v1/drafts/d1', {}],
     [['draft:submit', '--id', 'd1'], 'POST', '/agent/v1/drafts/d1/submit', {}],
+    [['reviews', '--campaign', 'c1'], 'GET', '/agent/v1/campaigns/c1/reviews', {}],
+    [['reviews', '--campaign', 'c1', '--status', 'all', '--history'], 'GET', '/agent/v1/campaigns/c1/reviews', { status: 'all', history: '1' }],
+    [['reviews', '--history', '--campaign', 'c1', '--status', 'submitted'], 'GET', '/agent/v1/campaigns/c1/reviews', { status: 'submitted', history: '1' }],
   ];
   for (const [args, method, pathname, query] of cases) {
     const result = await call(args);
@@ -53,6 +56,37 @@ test('maps each read command to its route and query', async () => {
     assert.equal(result.requests[0].path, pathname, args.join(' '));
     assert.deepEqual(result.requests[0].query, query, args.join(' '));
   }
+});
+
+test('reviews prints drafts with their requests unchanged', async () => {
+  const reviews = {
+    drafts: [{
+      draftId: 'd1',
+      ideaId: 'i1',
+      ideaTitle: 'Why your pour-over tastes sour',
+      socialProfileId: 'sp1',
+      username: 'acme.coffee',
+      status: 'changes_requested',
+      revision: 1,
+      caption: 'Sour cup? Grind finer.',
+      reviewNote: 'Open with the fix, not the problem.',
+      requests: [{
+        commentId: 'k1',
+        author: 'manager',
+        body: 'Open with the fix, not the problem.',
+        decision: 'request_changes',
+        revision: 1,
+        createdAt: 1790000000000,
+        images: [{ url: 'https://r2.test/draft-review-1', width: null, height: null, expiresAt: 1790003600000 }],
+      }],
+    }],
+    truncated: false,
+  };
+  server.reply(() => ok(reviews));
+  const result = await call(['reviews', '--campaign', 'c1']);
+  server.reply(() => ok({ echo: true }));
+  assert.equal(result.code, 0);
+  assert.deepEqual(result.json, { ok: true, data: reviews });
 });
 
 test('health adds the resolved config without the key', async () => {
@@ -118,6 +152,9 @@ test('rejects bad options before any request', async () => {
     ['ideas:submit', '--campaign', 'c1'],
     ['drafts:submit', '--file', 'x.json'],
     ['draft:get'],
+    ['reviews'],
+    ['reviews', '--campaign', 'c1', '--status', 'rejected'],
+    ['reviews', '--campaign', 'c1', '--history=0'],
     ['brands', 'stray'],
     ['publish'],
   ];

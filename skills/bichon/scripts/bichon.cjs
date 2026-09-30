@@ -12,7 +12,7 @@ const SCRIPT = './scripts/bichon.cjs';
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 120000;
 const MAX_REPORTED_ISSUES = 50;
-const BOOLEAN_FLAGS = new Set(['pretty', 'local', 'no-verify', 'dry-run', 'help']);
+const BOOLEAN_FLAGS = new Set(['pretty', 'local', 'no-verify', 'dry-run', 'help', 'history']);
 const REDACTED = '[redacted]';
 const SENSITIVE_FIELD_NAMES = new Set([
   'accesstoken',
@@ -29,6 +29,7 @@ const SENSITIVE_FIELD_NAMES = new Set([
 ]);
 const CAMPAIGN_STATUSES = ['active', 'archived'];
 const IDEA_STATUSES = ['proposed', 'approved', 'assigned', 'killed', 'done'];
+const REVIEW_STATUSES = ['changes_requested', 'submitted', 'approved', 'all'];
 const WHY_NOW_CATEGORIES = ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen'];
 const MODES = ['evidence', 'brief', 'mixed'];
 const POST_TYPES = ['image', 'video', 'text'];
@@ -117,6 +118,12 @@ function integerOption(parsed, name, min, max) {
     throw new CliError('invalid_request', `--${name} must be an integer from ${min} to ${max}.`);
   }
   return Number(value);
+}
+
+function flagOption(parsed, name) {
+  if (parsed[name] === undefined) return undefined;
+  if (parsed[name] !== true) throw new CliError('invalid_request', `--${name} is a flag and takes no value.`);
+  return true;
 }
 
 function listOption(parsed, name, allowed) {
@@ -434,6 +441,7 @@ const DRAFTS_SCHEMA = {
           postType: { enum: POST_TYPES },
           variantNote: str(1000, 0),
           mediaNotes: str(2000, 0),
+          responseNote: { ...str(1000, 0), description: 'what changed in answer to review requests, and what was left as is and why; stored on the next revision' },
         },
       },
     },
@@ -829,6 +837,13 @@ const COMMANDS = {
   'drafts:submit': sendFile('drafts', idRoute('ideas', 'idea', '/drafts')),
   'draft:get': get(idRoute('drafts', 'id')),
   'draft:submit': post(idRoute('drafts', 'id', '/submit'), () => ({})),
+  reviews: get(
+    campaignRoute('/reviews'),
+    (parsed) => ({
+      status: enumOption(parsed, 'status', REVIEW_STATUSES),
+      history: flagOption(parsed, 'history') ? 1 : undefined,
+    }),
+  ),
   'brand:context': get(brandRoute('/context')),
   'personas:draft': get(
     brandRoute('/personas/draft'),
@@ -879,6 +894,7 @@ const COMMANDS = {
       'drafts:submit': '--idea <ideaId> --file <bundle.json> [--dry-run]',
       'draft:get': '--id <draftId>',
       'draft:submit': '--id <draftId>',
+      reviews: `--campaign <campaignId> [--status ${REVIEW_STATUSES.join('|')}] [--history]`,
       'brand:context': '--brand <brandId>',
       'personas:draft': '--brand <brandId> [--profile <socialProfileId>]',
       'personas:set': '--brand <brandId> --file <personas.json> [--dry-run]',

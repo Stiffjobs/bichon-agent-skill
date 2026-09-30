@@ -79,7 +79,7 @@ code 1 on any failure. The API key is never printed.
 | `campaigns:create --brand <id> --file setup.json [--dry-run]` | Validate a CampaignSetup locally, then create the campaign |
 | `campaigns:update --campaign <id> --file setup.json [--impact-key <key>] [--dry-run]` | Change any subset of a campaign's setup |
 | `analysis:request --brand <id> --profile <socialProfileId>` | Ask for a channel analysis: `{ socialProfileId, status: none\|analyzing\|ready\|insufficient_data\|failed, note? }`; returns the current status when a run is live or finished within the last hour, otherwise starts one |
-| `threads --campaign <id>` | Threads keywords, findings (with citations) and analyzed Threads posts |
+| `threads --campaign <id>` | The campaign's Threads keywords and analyzed Threads posts: `{ keywords, items, pendingCount }` |
 | `research:collect --campaign <id> [--kinds rss,competitors,threads]` | Start collecting sources (default: all three): `{ runs: [{ kind, runId, status, note? }] }`; a misconfigured kind comes back `skipped` with a `note` |
 | `research:runs --campaign <id>` | The newest 20 collection runs: `kind`, `status`, `startedAt`, `finishedAt`, `newItems`, `note` |
 | `research:pending --campaign <id> [--limit 1..25] [--kind article\|competitor_post\|threads_post] [--out batch.json]` | Lease up to `limit` unanalyzed items for 20 minutes: `{ leaseId, leaseUntil, remaining, items }`; `--out` writes the batch to a file and prints `leaseId`, `remaining` and counts |
