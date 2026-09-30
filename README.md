@@ -61,6 +61,8 @@ one Opus subagent per batch, several in parallel) and stores the results with
 only; ask for a fresh collection ("collect new research for the autumn
 campaign") when the sources are stale.
 
+Review loop: after reviewing drafts in the dashboard (campaign → Review posts), ask the agent to "address the review comments"; it runs `reviews`, rewrites each caption with a `responseNote` and resubmits it as the next revision.
+
 ## Example Run
 
 Inside an agent session, ask for it in plain words ("run ideation for the
@@ -84,6 +86,7 @@ $S ideas:submit --campaign <campaignId> --file work/run.json
 $S drafts:submit --idea <ideaId> --file work/drafts.json
 # → drafts[].voiceCheck findings; the agent repairs and resubmits
 $S draft:submit --id <draftId>   # optional: send to manager review
+$S reviews --campaign <campaignId>   # after the manager's review: requests to answer
 ```
 
 Every command prints `{"ok":true,"data":...}` or, with exit code 1,

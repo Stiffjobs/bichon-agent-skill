@@ -3,6 +3,24 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.4.0 (2026-09-30)
+
+- `reviews --campaign <id> [--status changes_requested|submitted|approved|all]
+  [--history]` lists the campaign's drafts under review (default
+  `changes_requested`, at most 50) with `revision`, `reviewNote` and
+  `requests`: the manager's and client's comments on the current revision
+  (`--history` for every revision), with decision and expiring image URLs.
+- `draft:get` also returns `revision` and `requests`.
+- DraftsBundle entries accept an optional `responseNote` (at most 1000
+  chars): what the rewrite changed, stored on the draft's next revision.
+- SKILL.md gains a Review loop step after Hand over: read every request and
+  its images, rewrite the caption, add a `responseNote`, `drafts:submit`
+  (withdraws a submitted draft), then `draft:submit` for the next revision;
+  two rounds per session. Approved drafts cannot be rewritten (409
+  `draft_status`).
+- `threads` returns `{ keywords, items, pendingCount }`; Threads findings
+  are gone.
+
 ## 0.3.0 (2026-09-29)
 
 - The account playbook is part of the server's channel analysis.
