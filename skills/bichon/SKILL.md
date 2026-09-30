@@ -210,8 +210,15 @@ file with `--impact-key <impactKey>`.
    updates the existing draft for that account. Stop after two repair rounds
    and report what is left.
 8. **Hand over.** Optionally `draft:submit --id <draftId>` to send a draft to
-   manager review when the user asked for it. Never publish or schedule: the
-   dashboard does that.
+   manager review when the user asked for it. About a minute later,
+   `draft:get` shows the server's pre-review in `aiReview`: `status`
+   (`passed` | `concerns` | `failed`), `summary`, `concerns[]` and
+   `requirementChecks[]` (one per campaign rule, with `passed` and `reason`).
+   A failed check blocks publishing; a concern is advice. To fix, resubmit
+   the draft bundle: rewriting a submitted draft withdraws it to
+   `changes_requested`, then `draft:submit` again. Approved drafts cannot be
+   rewritten. Two rounds at most, then leave the rest to the manager.
+   Never publish or schedule: the dashboard does that.
 
 ## Research
 
@@ -313,9 +320,12 @@ respect `avoid`. With no personas, derive the POV from `brand.audienceSummary`
 / `campaign.audience` and set `personaKey: null`.
 
 **Evidence and claims.**
-- Cite analyzed items only, by the ids `evidence` and `threads` return:
-  articles and competitor posts as `{ signalId, versionId?, reason,
-  excerpt? }`, Threads posts as `{ discoveryId, reason }`. Never invent ids.
+- Cite analyzed items only, by the ids `evidence` and `threads` return.
+  Each item carries either `signalId` + `versionId` (articles, competitor
+  posts and Threads posts from the native keyword scan) or `discoveryId`
+  (Threads posts from an import); the other is `null`. Cite whichever is set:
+  `{ signalId, versionId, reason, excerpt? }` or `{ discoveryId, reason }`.
+  Never invent ids and never assume a Threads post has a `discoveryId`.
   An item without an analysis for the current brief, or analyzed as
   off-topic, is rejected (`evidence_not_analyzed`). Every idea with evidence
   names a `primaryEvidence` index.
