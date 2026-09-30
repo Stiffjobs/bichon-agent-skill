@@ -3,6 +3,17 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.5.0 (2026-10-01)
+
+- `draft:media:add --id <draftId> --file <image>` uploads a JPEG, PNG or
+  WebP (at most 8 MB) and attaches it as the draft's next image;
+  `draft:media:remove --id <draftId> --media <mediaId>` removes one.
+- `draft:get` returns each image's `mediaId`, `contentType` and
+  `errorMessage` next to `kind`, `status` and `order`.
+- The workflow attaches an `image` post's images before hand-over, and the
+  review loop replaces an image a request asks to change. The studio is gone:
+  images come from the agent.
+
 ## 0.4.0 (2026-09-30)
 
 - `reviews --campaign <id> [--status changes_requested|submitted|approved|all]

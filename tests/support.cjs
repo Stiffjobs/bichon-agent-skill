@@ -16,16 +16,19 @@ async function startServer(handler = () => ({ status: 200, body: { ok: true, dat
   const requests = [];
   let respond = handler;
   const server = http.createServer((req, res) => {
-    let raw = '';
-    req.on('data', (chunk) => { raw += chunk; });
+    const chunks = [];
+    req.on('data', (chunk) => { chunks.push(chunk); });
     req.on('end', () => {
       const url = new URL(req.url, 'http://127.0.0.1');
+      const bytes = Buffer.concat(chunks);
+      const isJson = (req.headers['content-type'] || '').startsWith('application/json');
       const request = {
         method: req.method,
         path: url.pathname,
         query: Object.fromEntries(url.searchParams),
         headers: req.headers,
-        body: raw ? JSON.parse(raw) : undefined,
+        body: bytes.length && isJson ? JSON.parse(bytes.toString('utf8')) : undefined,
+        bytes: bytes.length,
       };
       requests.push(request);
       const reply = respond(request);

@@ -98,6 +98,53 @@ test('health adds the resolved config without the key', async () => {
   assert.ok(!result.stdout.includes(API_KEY));
 });
 
+test('draft:media:add uploads the file to storage and attaches its key', async () => {
+  const dir = tempDir();
+  const image = path.join(dir, 'cover.PNG');
+  fs.writeFileSync(image, Buffer.alloc(2048, 7));
+  server.reply((request) => {
+    if (request.path === '/agent/v1/drafts/d1/media/uploads')
+      return { status: 201, body: { ok: true, data: { key: 'draft-media/d1/k', uploadUrl: `${server.url}/storage/put?signed=1` } } };
+    if (request.path === '/storage/put') return { status: 200, body: '' };
+    return { status: 201, body: { ok: true, data: { mediaId: 'm1' } } };
+  });
+  try {
+    const result = await call(['draft:media:add', '--id', 'd1', '--file', image]);
+    assert.equal(result.code, 0, result.stdout);
+    const [mint, put, attach] = result.requests;
+    assert.deepEqual([mint.method, mint.path, mint.body], ['POST', '/agent/v1/drafts/d1/media/uploads', { contentType: 'image/png' }]);
+    assert.equal(put.method, 'PUT');
+    assert.equal(put.headers['content-type'], 'image/png');
+    assert.equal(put.headers.authorization, undefined);
+    assert.equal(put.bytes, 2048);
+    assert.deepEqual([attach.path, attach.body], ['/agent/v1/drafts/d1/media', { key: 'draft-media/d1/k', contentType: 'image/png' }]);
+    assert.deepEqual(result.json, { ok: true, data: { mediaId: 'm1', contentType: 'image/png', bytes: 2048 } });
+
+    const gif = path.join(dir, 'a.gif');
+    fs.writeFileSync(gif, 'x');
+    const refused = await call(['draft:media:add', '--id', 'd1', '--file', gif]);
+    assert.equal(refused.code, 1);
+    assert.equal(refused.json.error.code, 'invalid_request');
+    assert.equal(refused.requests.length, 0);
+
+    server.reply((request) => request.path === '/storage/put'
+      ? { status: 403, body: '' }
+      : { status: 201, body: { ok: true, data: { key: 'draft-media/d1/k', uploadUrl: `${server.url}/storage/put` } } });
+    const blocked = await call(['draft:media:add', '--id', 'd1', '--file', image]);
+    assert.equal(blocked.json.error.code, 'upload_failed');
+    assert.equal(blocked.requests.length, 2);
+  } finally {
+    server.reply(() => ok({ echo: true }));
+  }
+});
+
+test('draft:media:remove deletes the image from the draft', async () => {
+  const result = await call(['draft:media:remove', '--id', 'd1', '--media', 'm1']);
+  assert.equal(result.code, 0);
+  assert.equal(result.requests[0].method, 'DELETE');
+  assert.equal(result.requests[0].path, '/agent/v1/drafts/d1/media/m1');
+});
+
 test('encodes ids into path segments', async () => {
   const result = await call(['draft:get', '--id', 'a/b?c']);
   assert.equal(result.requests[0].path, '/agent/v1/drafts/a%2Fb%3Fc');

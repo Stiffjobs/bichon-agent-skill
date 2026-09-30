@@ -12,6 +12,8 @@ const SCRIPT = './scripts/bichon.cjs';
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 120000;
 const MAX_REPORTED_ISSUES = 50;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
 const BOOLEAN_FLAGS = new Set(['pretty', 'local', 'no-verify', 'dry-run', 'help', 'history']);
 const REDACTED = '[redacted]';
 const SENSITIVE_FIELD_NAMES = new Set([
@@ -777,6 +779,47 @@ function getToFile(route, query, summarize) {
   });
 }
 
+function del(route) {
+  return withConfig(async (parsed, config) => emit(await api(config, 'DELETE', route(parsed))));
+}
+
+// An image reaches a draft in three steps: a signed upload URL from Bichon,
+// the file PUT straight to storage, then the uploaded key attached.
+async function addDraftMedia(parsed, config) {
+  const draftRoute = idRoute('drafts', 'id')(parsed);
+  const file = path.resolve(requireOption(parsed, 'file'));
+  const contentType = IMAGE_TYPES[path.extname(file).toLowerCase()];
+  if (!contentType) {
+    throw new CliError('invalid_request', `--file must be a JPEG, PNG or WebP image (${Object.keys(IMAGE_TYPES).join(', ')}).`);
+  }
+  let bytes;
+  try {
+    bytes = fs.readFileSync(file);
+  } catch {
+    throw new CliError('invalid_request', `Cannot read ${file}.`);
+  }
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_BYTES) {
+    throw new CliError('invalid_request', `${file} is ${bytes.byteLength} bytes; images must be 1 byte to ${MAX_IMAGE_BYTES} bytes.`);
+  }
+  const upload = (await api(config, 'POST', `${draftRoute}/media/uploads`, { body: { contentType } })).data;
+  let response;
+  try {
+    response = await fetch(upload.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: bytes,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new CliError('network_error', `Could not upload ${file} to storage (${(err && err.message) || 'unknown error'}).`);
+  }
+  if (!response.ok) {
+    throw new CliError('upload_failed', `Storage refused the upload (HTTP ${response.status}).`);
+  }
+  const attached = await api(config, 'POST', `${draftRoute}/media`, { body: { key: upload.key, contentType } });
+  return succeed({ ...attached.data, contentType, bytes: bytes.byteLength });
+}
+
 const idRoute = (collection, option, suffix = '') => (parsed) => `/${collection}/${segment(requireOption(parsed, option))}${suffix}`;
 const campaignRoute = (suffix) => idRoute('campaigns', 'campaign', suffix);
 const brandRoute = (suffix) => idRoute('brands', 'brand', suffix);
@@ -837,6 +880,8 @@ const COMMANDS = {
   'drafts:submit': sendFile('drafts', idRoute('ideas', 'idea', '/drafts')),
   'draft:get': get(idRoute('drafts', 'id')),
   'draft:submit': post(idRoute('drafts', 'id', '/submit'), () => ({})),
+  'draft:media:add': withConfig(addDraftMedia),
+  'draft:media:remove': del((parsed) => `${idRoute('drafts', 'id')(parsed)}${idRoute('media', 'media')(parsed)}`),
   reviews: get(
     campaignRoute('/reviews'),
     (parsed) => ({
@@ -894,6 +939,8 @@ const COMMANDS = {
       'drafts:submit': '--idea <ideaId> --file <bundle.json> [--dry-run]',
       'draft:get': '--id <draftId>',
       'draft:submit': '--id <draftId>',
+      'draft:media:add': '--id <draftId> --file <image.jpg|png|webp>',
+      'draft:media:remove': '--id <draftId> --media <mediaId>',
       reviews: `--campaign <campaignId> [--status ${REVIEW_STATUSES.join('|')}] [--history]`,
       'brand:context': '--brand <brandId>',
       'personas:draft': '--brand <brandId> [--profile <socialProfileId>]',

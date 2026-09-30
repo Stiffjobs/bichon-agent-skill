@@ -7,10 +7,11 @@ description: >
   channel analyses, format menu, prior ideas), analyzes the collected research
   (articles, competitor posts, Threads posts) with parallel analyst subagents,
   searches the analyzed evidence, submits up to five sourced content ideas, then writes
-  one caption per target account, submits the drafts for voice checks and
-  manager review, and rewrites them to answer the manager's review requests.
+  one caption per target account, attaches the post images, submits the drafts
+  for voice checks and manager review, and rewrites them to answer the
+  manager's review requests.
   Never publishes.
-last-updated: 2026-09-30
+last-updated: 2026-10-01
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -74,6 +75,8 @@ code 1 on any failure. The API key is never printed.
 | `drafts:submit --idea <id> --file drafts.json [--dry-run]` | Validate a DraftsBundle locally, then create or update drafts |
 | `draft:get --id <draftId>` | One draft with caption, voice check, review state, `revision` and `requests` (review comments on the current revision) |
 | `draft:submit --id <draftId>` | Send a draft to manager review; each submit creates the next revision |
+| `draft:media:add --id <draftId> --file <image>` | Upload a JPEG, PNG or WebP (≤ 8 MB) and attach it as the draft's next image: `{ mediaId, contentType, bytes }` |
+| `draft:media:remove --id <draftId> --media <mediaId>` | Remove one image from the draft; the rest keep their order |
 | `reviews --campaign <id> [--status changes_requested\|rejected\|submitted\|approved\|all] [--history]` | The campaign's drafts under review (default `changes_requested`, at most 200): `{ drafts: [{ draftId, ideaId, ideaTitle, socialProfileId, username, status, revision, caption, reviewNote, requests }], truncated }`; `requests` are the comments on the current revision (`--history`: every revision), each `{ commentId, author: manager\|client, body, decision: approve\|request_changes\|reject\|null, revision, createdAt, images: [{ url, width, height, expiresAt }] }` |
 | `brand:context --brand <id>` | Brand voice, pillars, audience and personas, every connected account (channel analysis, voice, manager notes), competitors, assets, recent campaigns, evidence sources |
 | `personas:draft --brand <id> [--profile <socialProfileId>]` | Up to five personas drafted from an account's past posts; nothing is saved |
@@ -208,6 +211,14 @@ file with `--impact-key <impactKey>`.
    voice (rules below). Write the bundle to a file and
    `drafts:submit --idea <ideaId> --file drafts.json`. The idea keeps its
    status: the manager approves and assigns it in the dashboard.
+   **Images.** For an `image` post, attach its images before handing over:
+   `draft:media:add --id <draftId> --file card1.png`, once per image in
+   carousel order (at most 10). The dashboard shows them in the review.
+   `draft:get` lists `media` with each `mediaId`, `order` and `status`
+   (`processing`, then `ready`, or `failed` with `errorMessage`); remove a
+   failed or wrong image with `draft:media:remove` and add it again. Images
+   are locked while the draft is `submitted` and once a publication is
+   scheduled.
 7. **Repair.** Read each draft's `voiceCheck`. Fix every `fail` finding and
    any `warn` you agree with, then resubmit the same bundle shape; the server
    updates the existing draft for that account. Stop after two repair rounds
@@ -233,7 +244,9 @@ file with `--impact-key <impactKey>`.
       It may show the desired layout or a marked-up screenshot of the post.
       When a URL has expired, run `reviews` again for fresh ones.
    2. Rewrite the caption so it answers every request, within the Caption
-      rules (reload `context` first). When a request conflicts with a campaign
+      rules (reload `context` first). When a request is about an image,
+      replace it once the draft is back in `changes_requested`:
+      `draft:media:remove`, then `draft:media:add`. When a request conflicts with a campaign
       rule or asks for a claim the idea's evidence does not support, keep the
       rule and say so.
    3. Add a `responseNote` to that draft's entry: what you changed, what you
@@ -712,6 +725,7 @@ The helper checks these before sending and names the offending path.
 | `caption` | 1–5000 chars |
 | draft `title` / `variantNote` / `mediaNotes` | 200 / 1000 / 2000 chars |
 | draft `responseNote` | 1000 chars, optional |
+| draft images | ≤ 10 per draft; JPEG, PNG or WebP, ≤ 8 MB each |
 | request body | 1 MB |
 
 Required in an IdeationRunBundle: `format`, `agent.name`, `mode`,
@@ -778,7 +792,9 @@ update needs at least one field. Every persona field except `key` is required
 | 409 | `stale_versions` | Brief or source policy changed; reload `context`, rebuild |
 | 409 | `impact_confirmation` | The setup change would affect existing work; show `details.impact`, then resubmit with `--impact-key <details.impactKey>` |
 | 409 | `idea_status` | Idea is killed or done; drafts need proposed, approved or assigned |
-| 409 | `draft_status` | The draft is approved and cannot be rewritten (drop it from the bundle; it needs nothing more), or submit was refused (message says why) |
+| 409 | `draft_status` | The draft is approved and cannot be rewritten (drop it from the bundle; it needs nothing more), submit was refused (message says why), or images were changed while the draft is `submitted` |
+| 409 | `conflict` | The campaign is archived, or the draft's images are locked because a publication is scheduled or out |
+| — | `upload_failed` | Storage refused the image upload (`draft:media:add`); retry, then report the HTTP status |
 | 413 | `payload_too_large` | Body over 1 MB; send fewer ideas or drafts per call |
 | 503 | `provider_unavailable` | Evidence search could not embed the query; retry later or search without `--q` |
 
