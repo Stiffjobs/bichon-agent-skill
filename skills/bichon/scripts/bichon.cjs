@@ -500,6 +500,41 @@ const RESEARCH_ANALYSES_SCHEMA = {
   ),
 };
 
+const tally = { type: 'integer', minimum: 0, maximum: 1e12 };
+
+const RESEARCH_CAPTURES_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'urn:bichon:schema:research-captures:v1',
+  title: 'ResearchCaptureBundle',
+  description: 'Body of research:add: pages and posts you read yourself. They become pending research items, keyed by URL.',
+  ...strictObject(
+    {
+      format: { const: 'bichon-research-captures/v1' },
+      agent: agentSchema,
+      items: list(
+        strictObject(
+          {
+            kind: { enum: ITEM_KINDS, description: 'article: a page; competitor_post: a post by another account on any platform; threads_post: a Threads post found in a discussion' },
+            url: { ...str(2000), pattern: '^https?://\\S+$', description: 'the http(s) URL of the page or post itself' },
+            text: { ...str(20000), description: 'the full text as you read it, verbatim; no summary, no commentary' },
+            title: str(300),
+            author: { ...str(200), description: 'display name' },
+            username: { ...str(100), description: 'account handle; required for competitor_post and threads_post' },
+            publishedAt: { ...str(40), description: 'ISO 8601, only when the page states it' },
+            language: str(35),
+            engagement: { ...strictObject({ likes: tally, comments: tally, views: tally }), description: 'the counts shown on the post; posts only' },
+            note: { ...str(300), description: 'how you found it: the account you were reading or the search you ran' },
+          },
+          ['kind', 'url', 'text'],
+        ),
+        25,
+        { minItems: 1 },
+      ),
+    },
+    ['format', 'agent', 'items'],
+  ),
+};
+
 const idList = (maxItems, extra) => list(str(200), maxItems, { uniqueItems: true, ...extra });
 
 const SETUP_SCHEMA = {
@@ -653,6 +688,19 @@ function checkResearchBundle(bundle, issues) {
   });
 }
 
+function checkCapturesBundle(bundle, issues) {
+  checkUnique(bundle.items, 'url', 'items', 'appears twice; capture each URL once', issues);
+  (Array.isArray(bundle.items) ? bundle.items : []).forEach((item, index) => {
+    if (!item || typeof item !== 'object') return;
+    if (item.kind !== 'article' && item.kind !== undefined && !item.username) {
+      issues.push({ path: `items[${index}].username`, message: `is required for a ${item.kind}` });
+    }
+    if (typeof item.publishedAt === 'string' && Number.isNaN(Date.parse(item.publishedAt))) {
+      issues.push({ path: `items[${index}].publishedAt`, message: 'must be an ISO 8601 date; leave it out when unknown' });
+    }
+  });
+}
+
 function checkSetupPatch(setup, issues) {
   if (Object.keys(setup).length === 0) issues.push({ path: '(root)', message: 'sets no fields; name at least one to change' });
 }
@@ -671,8 +719,9 @@ const BUNDLES = {
   'setup-patch': { schema: { ...SETUP_SCHEMA, required: [] }, check: checkSetupPatch, counts: (setup) => ({ fields: Object.keys(setup).length }) },
   personas: { schema: PERSONAS_SCHEMA, counts: (file) => ({ personas: file.personas.length }) },
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
+  captures: { schema: RESEARCH_CAPTURES_SCHEMA, check: checkCapturesBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -922,13 +971,14 @@ const COMMANDS = {
     },
   ),
   'research:submit': sendFile('research', campaignRoute('/research/analyses')),
+  'research:add': sendFile('captures', campaignRoute('/research/captures')),
   'research:sources': get(brandRoute('/research/sources')),
   'analysis:request': post((parsed) => `${brandRoute()(parsed)}${idRoute('accounts', 'profile', '/analysis')(parsed)}`),
   schema: async (args) => {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
     if (bundle) return succeed(BUNDLES[bundle].schema);
-    return succeed({ posts: POSTS_SCHEMA, drafts: DRAFTS_SCHEMA, setup: SETUP_SCHEMA, personas: PERSONAS_SCHEMA, research: RESEARCH_ANALYSES_SCHEMA });
+    return succeed({ posts: POSTS_SCHEMA, drafts: DRAFTS_SCHEMA, setup: SETUP_SCHEMA, personas: PERSONAS_SCHEMA, research: RESEARCH_ANALYSES_SCHEMA, captures: RESEARCH_CAPTURES_SCHEMA });
   },
   help: async () => succeed({
     usage: `${SCRIPT} <command> [--options] [--pretty]`,
@@ -960,6 +1010,7 @@ const COMMANDS = {
       'research:runs': '--campaign <campaignId>',
       'research:pending': `--campaign <campaignId> [--limit 1..25] [--kind ${ITEM_KINDS.join('|')}] [--out <batch.json>]`,
       'research:submit': '--campaign <campaignId> --file <analyses.json> [--dry-run]',
+      'research:add': '--campaign <campaignId> --file <captures.json> [--dry-run]',
       'research:sources': '--brand <brandId>',
       'analysis:request': '--brand <brandId> --profile <socialProfileId>',
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,

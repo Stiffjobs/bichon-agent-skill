@@ -3,6 +3,25 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.7.0 (2026-10-01)
+
+- `research:add --campaign <id> --file captures.json [--dry-run]` hands in
+  pages and posts the agent read itself (`bichon-research-captures/v1`,
+  `schema --bundle captures`): at most 25 items per call and 300 per
+  campaign, each with `kind`, `url` and the verbatim `text`; posts also need
+  `username`. It posts to `POST /agent/v1/campaigns/:id/research/captures`
+  and returns `{ added, updated, unchanged, rejected, captured, limit }`.
+- Captured items are pending research like collected ones: lease them with
+  `research:pending`, analyze, `research:submit`, then cite the `signalId`
+  and `versionId` that `evidence` returns.
+- SKILL.md gains a Capture section and the `research:add` rejection codes.
+- `posts:submit` documents the duplicate check: `plan.near_duplicate`
+  rejections and the `plan.possible_duplicate` / `plan.duplicate_unchecked`
+  warnings on accepted posts.
+- Needs the Bichon server release that has
+  `POST /campaigns/:id/research/captures`; older servers have no route for
+  `research:add`.
+
 ## 0.6.0 (2026-10-01)
 
 - `posts:submit --campaign <id> --file posts.json [--dry-run]` replaces

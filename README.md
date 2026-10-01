@@ -62,6 +62,12 @@ one Opus subagent per batch, several in parallel) and stores the results with
 only; ask for a fresh collection ("collect new research for the autumn
 campaign") when the sources are stale.
 
+Capture: the agent can also add what it reads itself. Ask it to look at an
+account, a site or a topic ("read @example_roasters' last ten TikToks", "find
+forum threads about sour pour-over"); it reads the pages with its own browser
+or web tools, hands them in with `research:add`, and analyzes them like any
+collected item before citing them.
+
 Review loop: after reviewing drafts in the dashboard (campaign → Review posts), ask the agent to "address the review comments"; it runs `reviews`, rewrites each caption with a `responseNote` and resubmits it as the next revision.
 
 ## Example Run
@@ -93,7 +99,7 @@ $S reviews --campaign <campaignId>   # after the manager's review: requests to a
 Every command prints `{"ok":true,"data":...}` or, with exit code 1,
 `{"ok":false,"error":{"code","message","details?"}}`. `schema` prints the JSON
 Schemas of the bundles (posts, drafts, campaign setup, personas,
-research analyses), and `--dry-run` validates a bundle without sending it.
+research analyses, research captures), and `--dry-run` validates a bundle without sending it.
 
 ## Tests
 

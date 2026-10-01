@@ -187,6 +187,50 @@ test('passes per-item not_leased rejections through', async () => {
   assert.deepEqual(result.json.data, data);
 });
 
+const add = (bundle, extra = []) => call(['research:add', '--campaign', 'c1', '--file', file(bundle), ...extra]);
+
+test('the SKILL.md ResearchCaptureBundle example is valid and posted verbatim', async () => {
+  const { captures } = skillExamples();
+  const dry = await add(captures, ['--dry-run']);
+  assert.equal(dry.code, 0, dry.stdout);
+  assert.equal(dry.requests.length, 0);
+  assert.deepEqual(dry.json.data, { valid: true, dryRun: true, bundle: 'captures', counts: { items: 3 } });
+  const posted = await add(captures);
+  assert.equal(posted.code, 0, posted.stdout);
+  assert.equal(posted.requests[0].method, 'POST');
+  assert.equal(posted.requests[0].path, '/agent/v1/campaigns/c1/research/captures');
+  assert.deepEqual(posted.requests[0].body, captures);
+});
+
+test('research:add rejects a bad capture before any request', async () => {
+  const { captures } = skillExamples();
+  const [page, post] = captures.items;
+  const bundle = (items) => ({ ...clone(captures), items });
+  assertRejected(await add(bundle([{ ...page, url: 'notaurl', score: 1 }])), ['items[0].url', 'items[0].score']);
+  assertRejected(await add(bundle([{ ...post, username: undefined }])), ['items[0].username']);
+  assertRejected(await add(bundle([{ ...page, publishedAt: 'last week' }])), ['items[0].publishedAt']);
+  assertRejected(await add(bundle([{ ...post, engagement: { likes: 1.5, shares: 2 } }])), ['items[0].engagement.likes', 'items[0].engagement.shares']);
+  assertRejected(await add(bundle([page, page])), ['items[1].url']);
+  assertRejected(await add(bundle([])), ['items']);
+  assertRejected(await add(bundle(Array.from({ length: 26 }, (_, n) => ({ ...page, url: `https://example.com/${n}` })))), ['items']);
+});
+
+test('schema --bundle captures prints the ResearchCaptureBundle schema', async () => {
+  const one = await run(['schema', '--bundle', 'captures']);
+  assert.equal(one.code, 0);
+  const schema = one.json.data;
+  assert.equal(schema.title, 'ResearchCaptureBundle');
+  assert.deepEqual(schema.required, ['format', 'agent', 'items']);
+  const item = schema.properties.items.items;
+  assert.equal(schema.properties.items.maxItems, 25);
+  assert.equal(item.additionalProperties, false);
+  assert.deepEqual(item.required, ['kind', 'url', 'text']);
+  assert.deepEqual(item.properties.kind.enum, ['article', 'competitor_post', 'threads_post']);
+  assert.equal(item.properties.text.maxLength, 20000);
+  const all = await run(['schema']);
+  assert.deepEqual(all.json.data.captures, schema);
+});
+
 test('schema --bundle research prints the ResearchAnalysisBundle schema', async () => {
   const one = await run(['schema', '--bundle', 'research']);
   assert.equal(one.code, 0);

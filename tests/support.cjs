@@ -76,6 +76,7 @@ function skillExamples() {
     posts: blocks.find((block) => block.format === 'bichon-posts/v1'),
     drafts: blocks.find((block) => block.format === 'bichon-drafts/v1'),
     research: blocks.find((block) => block.format === 'bichon-research-analyses/v1'),
+    captures: blocks.find((block) => block.format === 'bichon-research-captures/v1'),
     setup: blocks.find((block) => Array.isArray(block.targetProfileIds)),
     personas: blocks.find((block) => Object.keys(block).join() === 'personas'),
   };
