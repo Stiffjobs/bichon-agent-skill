@@ -73,7 +73,7 @@ function skillBlocks(language) {
 function skillExamples() {
   const blocks = skillBlocks('json').map((block) => JSON.parse(block));
   return {
-    ideationRun: blocks.find((block) => block.format === 'bichon-ideation-run/v1'),
+    posts: blocks.find((block) => block.format === 'bichon-posts/v1'),
     drafts: blocks.find((block) => block.format === 'bichon-drafts/v1'),
     research: blocks.find((block) => block.format === 'bichon-research-analyses/v1'),
     setup: blocks.find((block) => Array.isArray(block.targetProfileIds)),

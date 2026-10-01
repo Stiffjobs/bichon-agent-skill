@@ -23,7 +23,7 @@ async function submit(command, target, bundle, extra = []) {
   return { ...result, requests: server.requests.slice(count) };
 }
 
-const submitRun = (bundle, extra) => submit('ideas:submit', ['--campaign', 'c1'], bundle, extra);
+const submitPosts = (bundle, extra) => submit('posts:submit', ['--campaign', 'c1'], bundle, extra);
 const submitDrafts = (bundle, extra) => submit('drafts:submit', ['--idea', 'i1'], bundle, extra);
 
 function assertRejected(result, paths) {
@@ -36,88 +36,130 @@ function assertRejected(result, paths) {
 }
 
 test('the SKILL.md examples are valid bundles', async () => {
-  const { ideationRun, drafts } = skillExamples();
-  const ideas = await submitRun(ideationRun, ['--dry-run']);
-  assert.equal(ideas.code, 0, ideas.stdout);
-  assert.deepEqual(ideas.json.data, { valid: true, dryRun: true, bundle: 'ideation-run', counts: { ideas: 1 } });
-  assert.equal(ideas.requests.length, 0);
+  const { posts, drafts } = skillExamples();
+  const checked = await submitPosts(posts, ['--dry-run']);
+  assert.equal(checked.code, 0, checked.stdout);
+  assert.deepEqual(checked.json.data, { valid: true, dryRun: true, bundle: 'posts', counts: { posts: 1, drafts: 2 } });
+  assert.equal(checked.requests.length, 0);
   const posted = await submitDrafts(drafts, ['--dry-run']);
   assert.equal(posted.code, 0, posted.stdout);
   assert.equal(posted.requests.length, 0);
 });
 
-test('accepts an empty run with a no-ideas reason', async () => {
-  const bundle = { ...clone(skillExamples().ideationRun), ideas: [], noIdeasReason: 'Nothing new fits the brief.' };
-  const result = await submitRun(bundle);
+test('accepts an empty submission with a no-posts reason', async () => {
+  const bundle = { ...clone(skillExamples().posts), posts: [], noPostsReason: 'Nothing new fits the brief.' };
+  const result = await submitPosts(bundle);
   assert.equal(result.code, 0, result.stdout);
   assert.equal(result.requests.length, 1);
 });
 
-test('rejects more than five ideas', async () => {
-  const bundle = clone(skillExamples().ideationRun);
-  bundle.ideas = Array.from({ length: 6 }, () => clone(bundle.ideas[0]));
-  assertRejected(await submitRun(bundle), ['ideas']);
+test('rejects more than five posts', async () => {
+  const bundle = clone(skillExamples().posts);
+  bundle.posts = Array.from({ length: 6 }, () => clone(bundle.posts[0]));
+  assertRejected(await submitPosts(bundle), ['posts']);
+});
+
+test('a post needs one to ten drafts, one per account', async () => {
+  const bundle = clone(skillExamples().posts);
+  bundle.posts.push({ ...clone(bundle.posts[0]), drafts: [] });
+  bundle.posts.push(clone(bundle.posts[0]));
+  delete bundle.posts[2].drafts;
+  bundle.posts[0].drafts[1].socialProfileId = bundle.posts[0].drafts[0].socialProfileId;
+  bundle.posts[0].drafts[0].caption = 'a'.repeat(5001);
+  assertRejected(await submitPosts(bundle), [
+    'posts[0].drafts[0].caption',
+    'posts[0].drafts[1].socialProfileId',
+    'posts[1].drafts',
+    'posts[2].drafts',
+  ]);
+});
+
+test('a post reviewNote is optional and at most 300 characters', async () => {
+  const bundle = clone(skillExamples().posts);
+  assert.ok('reviewNote' in bundle.posts[0]);
+  delete bundle.posts[0].reviewNote;
+  const without = await submitPosts(bundle, ['--dry-run']);
+  assert.equal(without.code, 0, without.stdout);
+  bundle.posts[0].reviewNote = 'n'.repeat(301);
+  assertRejected(await submitPosts(bundle), ['posts[0].reviewNote']);
+});
+
+test('a retired ideation-run bundle names posts:submit instead', async () => {
+  const bundle = clone(skillExamples().posts);
+  bundle.format = 'bichon-ideation-run/v1';
+  const result = await submitPosts(bundle);
+  assertRejected(result, ['format']);
+  const issue = result.json.error.details.issues.find((entry) => entry.path === 'format');
+  assert.match(issue.message, /bichon-posts\/v1/);
+  assert.match(issue.message, /posts:submit/);
+});
+
+test('posts:submit refuses a drafts bundle and drafts:submit refuses a posts bundle', async () => {
+  const { posts, drafts } = skillExamples();
+  assertRejected(await submitPosts(drafts), ['format']);
+  assertRejected(await submitDrafts(posts), ['format']);
 });
 
 test('rejects an unknown or retired whyNowCategory and accepts active_discussion', async () => {
   for (const retired of ['dated_event', 'growing_discussion']) {
-    const bundle = clone(skillExamples().ideationRun);
-    bundle.ideas[0].whyNowCategory = retired;
-    assertRejected(await submitRun(bundle), ['ideas[0].whyNowCategory']);
+    const bundle = clone(skillExamples().posts);
+    bundle.posts[0].whyNowCategory = retired;
+    assertRejected(await submitPosts(bundle), ['posts[0].whyNowCategory']);
   }
-  const bundle = clone(skillExamples().ideationRun);
-  bundle.ideas[0].whyNowCategory = 'active_discussion';
-  const result = await submitRun(bundle, ['--dry-run']);
+  const bundle = clone(skillExamples().posts);
+  bundle.posts[0].whyNowCategory = 'active_discussion';
+  const result = await submitPosts(bundle, ['--dry-run']);
   assert.equal(result.code, 0, result.stdout);
 });
 
 test('evidence cites a signal or a Threads discovery, never both', async () => {
-  const bundle = clone(skillExamples().ideationRun);
-  assert.ok(bundle.ideas[0].evidence.some((entry) => 'discoveryId' in entry));
-  bundle.ideas[0].evidence[0].discoveryId = 'd1';
-  bundle.ideas[0].evidence[2] = { discoveryId: 'd2', reason: 'Readers ask this.', excerpt: 'why is it sour' };
-  bundle.ideas[0].evidence.push({ reason: 'No id at all.' });
-  assertRejected(await submitRun(bundle), [
-    'ideas[0].evidence[0].discoveryId',
-    'ideas[0].evidence[2].excerpt',
-    'ideas[0].evidence[3].signalId',
+  const bundle = clone(skillExamples().posts);
+  assert.ok(bundle.posts[0].evidence.some((entry) => 'discoveryId' in entry));
+  bundle.posts[0].evidence[0].discoveryId = 'd1';
+  bundle.posts[0].evidence[2] = { discoveryId: 'd2', reason: 'Readers ask this.', excerpt: 'why is it sour' };
+  bundle.posts[0].evidence.push({ reason: 'No id at all.' });
+  assertRejected(await submitPosts(bundle), [
+    'posts[0].evidence[0].discoveryId',
+    'posts[0].evidence[2].excerpt',
+    'posts[0].evidence[3].signalId',
   ]);
 });
 
-test('rejects evidence indexes outside the idea evidence', async () => {
-  const bundle = clone(skillExamples().ideationRun);
-  bundle.ideas[0].primaryEvidence = 3;
-  bundle.ideas[0].claims[1].evidence = 5;
-  assertRejected(await submitRun(bundle), ['ideas[0].primaryEvidence', 'ideas[0].claims[1].evidence']);
+test('rejects evidence indexes outside the post evidence', async () => {
+  const bundle = clone(skillExamples().posts);
+  bundle.posts[0].primaryEvidence = 3;
+  bundle.posts[0].claims[1].evidence = 5;
+  assertRejected(await submitPosts(bundle), ['posts[0].primaryEvidence', 'posts[0].claims[1].evidence']);
 });
 
 test('requires primaryEvidence with evidence and evidence for non-evergreen why-now', async () => {
-  const bundle = clone(skillExamples().ideationRun);
-  delete bundle.ideas[0].primaryEvidence;
-  bundle.ideas.push({ ...clone(bundle.ideas[0]), evidence: [], claims: [], whyNowCategory: 'timely_news' });
-  assertRejected(await submitRun(bundle), ['ideas[0].primaryEvidence', 'ideas[1].whyNowCategory']);
+  const bundle = clone(skillExamples().posts);
+  delete bundle.posts[0].primaryEvidence;
+  bundle.posts.push({ ...clone(bundle.posts[0]), evidence: [], claims: [], whyNowCategory: 'timely_news' });
+  assertRejected(await submitPosts(bundle), ['posts[0].primaryEvidence', 'posts[1].whyNowCategory']);
 });
 
 test('rejects bounds, missing fields and unknown fields with their paths', async () => {
-  const bundle = clone(skillExamples().ideationRun);
-  bundle.format = 'bichon-ideation-run/v2';
-  bundle.ideas[0].title = 'x'.repeat(201);
-  bundle.ideas[0].pov.fear = '';
-  delete bundle.ideas[0].coreMessage;
-  bundle.ideas[0].score = 9;
-  bundle.ideas[0].evidence[0].excerpt = 'e'.repeat(401);
-  assertRejected(await submitRun(bundle), [
+  const bundle = clone(skillExamples().posts);
+  bundle.format = 'bichon-posts/v2';
+  bundle.posts[0].title = 'x'.repeat(201);
+  bundle.posts[0].pov.fear = '';
+  delete bundle.posts[0].coreMessage;
+  bundle.posts[0].score = 9;
+  bundle.posts[0].evidence[0].excerpt = 'e'.repeat(401);
+  assertRejected(await submitPosts(bundle), [
     'format',
-    'ideas[0].title',
-    'ideas[0].pov.fear',
-    'ideas[0].coreMessage',
-    'ideas[0].score',
-    'ideas[0].evidence[0].excerpt',
+    'posts[0].title',
+    'posts[0].pov.fear',
+    'posts[0].coreMessage',
+    'posts[0].score',
+    'posts[0].evidence[0].excerpt',
   ]);
 });
 
 test('rejects a caption over 5000 characters and duplicate accounts', async () => {
   const bundle = clone(skillExamples().drafts);
+  bundle.drafts.push(clone(bundle.drafts[0]));
   bundle.drafts[0].caption = 'a'.repeat(5001);
   bundle.drafts[1].socialProfileId = bundle.drafts[0].socialProfileId;
   bundle.drafts[1].postType = 'carousel';
@@ -127,6 +169,7 @@ test('rejects a caption over 5000 characters and duplicate accounts', async () =
 test('a draft responseNote is optional and at most 1000 characters', async () => {
   const bundle = clone(skillExamples().drafts);
   assert.ok(bundle.drafts.some((draft) => 'responseNote' in draft));
+  bundle.drafts.push({ ...clone(bundle.drafts[0]), socialProfileId: '<threads socialProfileId>' });
   bundle.drafts[0].responseNote = 'n'.repeat(1000);
   const fits = await submitDrafts(bundle);
   assert.equal(fits.code, 0, fits.stdout);
@@ -140,7 +183,7 @@ test('rejects unreadable or malformed bundle files as invalid requests', async (
   const broken = path.join(dir, 'broken.json');
   fs.writeFileSync(broken, '{ "format": ');
   for (const file of [broken, path.join(dir, 'missing.json')]) {
-    const result = await submitRun(file);
+    const result = await submitPosts(file);
     assert.equal(result.code, 1);
     assert.equal(result.requests.length, 0);
     assert.equal(result.json.error.code, 'invalid_request');
@@ -150,15 +193,27 @@ test('rejects unreadable or malformed bundle files as invalid requests', async (
 test('schema prints draft 2020-12 schemas for both bundles', async () => {
   const result = await run(['schema']);
   assert.equal(result.code, 0);
-  const { ideationRun, drafts } = result.json.data;
-  for (const schema of [ideationRun, drafts]) assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
-  assert.equal(ideationRun.properties.ideas.maxItems, 5);
-  const idea = ideationRun.properties.ideas.items.properties;
-  assert.deepEqual(idea.whyNowCategory.enum, ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen']);
-  assert.deepEqual(idea.evidence.items.oneOf.map((branch) => branch.required), [['signalId', 'reason'], ['discoveryId', 'reason']]);
+  const { posts, drafts } = result.json.data;
+  for (const schema of [posts, drafts]) assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
+  assert.equal(posts.properties.format.const, 'bichon-posts/v1');
+  assert.equal(posts.properties.posts.maxItems, 5);
+  const post = posts.properties.posts.items.properties;
+  assert.ok(posts.properties.posts.items.required.includes('drafts'));
+  assert.ok(!posts.properties.posts.items.required.includes('reviewNote'));
+  assert.equal(post.reviewNote.maxLength, 300);
+  assert.equal(post.drafts.minItems, 1);
+  assert.equal(post.drafts.maxItems, 10);
+  assert.equal(post.drafts.items.properties.caption.maxLength, 5000);
+  assert.deepEqual(post.whyNowCategory.enum, ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen']);
+  assert.deepEqual(post.evidence.items.oneOf.map((branch) => branch.required), [['signalId', 'reason'], ['discoveryId', 'reason']]);
   assert.equal(drafts.properties.drafts.items.properties.caption.maxLength, 5000);
   assert.equal(drafts.properties.drafts.items.properties.responseNote.maxLength, 1000);
   assert.ok(!drafts.properties.drafts.items.required.includes('responseNote'));
   const one = await run(['schema', '--bundle', 'drafts']);
   assert.deepEqual(one.json.data, drafts);
+  const other = await run(['schema', '--bundle', 'posts']);
+  assert.deepEqual(other.json.data, posts);
+  const retired = await run(['schema', '--bundle', 'ideation-run']);
+  assert.equal(retired.code, 1);
+  assert.equal(retired.json.error.code, 'invalid_request');
 });

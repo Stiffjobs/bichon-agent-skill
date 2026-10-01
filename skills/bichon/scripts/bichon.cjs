@@ -30,7 +30,7 @@ const SENSITIVE_FIELD_NAMES = new Set([
   'sessiontoken',
 ]);
 const CAMPAIGN_STATUSES = ['active', 'archived'];
-const IDEA_STATUSES = ['proposed', 'approved', 'assigned', 'killed', 'done'];
+const IDEA_STATUSES = ['proposed', 'approved', 'killed', 'done'];
 const REVIEW_STATUSES = ['changes_requested', 'rejected', 'submitted', 'approved', 'all'];
 const WHY_NOW_CATEGORIES = ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen'];
 const MODES = ['evidence', 'brief', 'mixed'];
@@ -339,115 +339,107 @@ const signalEvidenceSchema = strictObject(
 );
 const discoveryEvidenceSchema = strictObject({ discoveryId: str(200), reason: str(2000) }, ['discoveryId', 'reason']);
 
-const IDEATION_RUN_SCHEMA = {
+const IDEA_SCHEMA = strictObject(
+  {
+    title: str(200),
+    hook: str(1000),
+    treatment: str(2000),
+    audienceBenefit: str(300),
+    whyNow: str(2000),
+    limitation: str(300),
+    whyNowCategory: { enum: WHY_NOW_CATEGORIES },
+    recommendedFormat: str(200),
+    personaKey: nullable(str(200)),
+    pov: strictObject({ moment: str(300), fear: str(300), desire: str(300) }, ['moment', 'fear', 'desire']),
+    coreMessage: str(300),
+    assetId: nullable(str(200)),
+    assetReason: nullable(str(300, 0)),
+    evidence: list({ oneOf: [signalEvidenceSchema, discoveryEvidenceSchema] }, 10),
+    primaryEvidence: { type: 'integer', minimum: 0, maximum: 9 },
+    claims: list(strictObject({ text: str(2000), evidence: { type: 'integer', minimum: 0, maximum: 9 } }, ['text']), 8),
+    formatPlan: list(
+      strictObject(
+        { socialProfileId: str(200), formatKey: str(200), layoutModelPostId: str(200), openerSource: str(300) },
+        ['socialProfileId', 'formatKey', 'layoutModelPostId'],
+      ),
+      10,
+    ),
+  },
+  [
+    'title', 'hook', 'treatment', 'audienceBenefit', 'whyNow', 'limitation', 'whyNowCategory',
+    'recommendedFormat', 'personaKey', 'pov', 'coreMessage', 'assetId', 'assetReason', 'evidence',
+    'claims', 'formatPlan',
+  ],
+);
+
+const DRAFT_SCHEMA = strictObject(
+  {
+    socialProfileId: str(200),
+    caption: str(5000),
+    title: str(200, 0),
+    postType: { enum: POST_TYPES },
+    variantNote: str(1000, 0),
+    mediaNotes: str(2000, 0),
+  },
+  ['socialProfileId', 'caption'],
+);
+const MAX_DRAFTS = 10;
+
+const POSTS_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'urn:bichon:schema:ideation-run:v1',
-  title: 'IdeationRunBundle',
-  type: 'object',
-  additionalProperties: false,
-  required: ['format', 'agent', 'mode', 'briefVersion', 'sourcePolicyVersion', 'ideas'],
-  properties: {
-    format: { const: 'bichon-ideation-run/v1' },
-    agent: agentSchema,
-    mode: { enum: MODES },
-    briefVersion: str(200),
-    sourcePolicyVersion: str(200),
-    submissionId: str(80),
-    note: str(300, 0),
-    noIdeasReason: str(300, 0),
-    ideas: {
-      type: 'array',
-      maxItems: 5,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'title', 'hook', 'treatment', 'audienceBenefit', 'whyNow', 'limitation', 'whyNowCategory',
-          'recommendedFormat', 'personaKey', 'pov', 'coreMessage', 'assetId', 'assetReason', 'evidence',
-          'claims', 'formatPlan',
-        ],
-        properties: {
-          title: str(200),
-          hook: str(1000),
-          treatment: str(2000),
-          audienceBenefit: str(300),
-          whyNow: str(2000),
-          limitation: str(300),
-          whyNowCategory: { enum: WHY_NOW_CATEGORIES },
-          recommendedFormat: str(200),
-          personaKey: nullable(str(200)),
-          pov: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['moment', 'fear', 'desire'],
-            properties: { moment: str(300), fear: str(300), desire: str(300) },
-          },
-          coreMessage: str(300),
-          assetId: nullable(str(200)),
-          assetReason: nullable(str(300, 0)),
-          evidence: list({ oneOf: [signalEvidenceSchema, discoveryEvidenceSchema] }, 10),
-          primaryEvidence: { type: 'integer', minimum: 0, maximum: 9 },
-          claims: {
-            type: 'array',
-            maxItems: 8,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['text'],
-              properties: { text: str(2000), evidence: { type: 'integer', minimum: 0, maximum: 9 } },
-            },
-          },
-          formatPlan: {
-            type: 'array',
-            maxItems: 10,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['socialProfileId', 'formatKey', 'layoutModelPostId'],
-              properties: {
-                socialProfileId: str(200),
-                formatKey: str(200),
-                layoutModelPostId: str(200),
-                openerSource: str(300),
-              },
-            },
+  $id: 'urn:bichon:schema:posts:v1',
+  title: 'PostsBundle',
+  description: 'Body of posts:submit. Each post is its idea brief plus one caption per target account.',
+  ...strictObject(
+    {
+      format: { const: 'bichon-posts/v1' },
+      agent: agentSchema,
+      mode: { enum: MODES },
+      briefVersion: str(200),
+      sourcePolicyVersion: str(200),
+      submissionId: str(80),
+      note: str(300, 0),
+      noPostsReason: str(300, 0),
+      posts: list(
+        {
+          ...IDEA_SCHEMA,
+          required: [...IDEA_SCHEMA.required, 'drafts'],
+          properties: {
+            ...IDEA_SCHEMA.properties,
+            reviewNote: { ...str(300, 0), description: 'what the manager should check before approving' },
+            drafts: list(DRAFT_SCHEMA, MAX_DRAFTS, { minItems: 1 }),
           },
         },
-      },
+        5,
+      ),
     },
-  },
+    ['format', 'agent', 'mode', 'briefVersion', 'sourcePolicyVersion', 'posts'],
+  ),
 };
 
 const DRAFTS_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'urn:bichon:schema:drafts:v1',
   title: 'DraftsBundle',
-  type: 'object',
-  additionalProperties: false,
-  required: ['format', 'agent', 'drafts'],
-  properties: {
-    format: { const: 'bichon-drafts/v1' },
-    agent: agentSchema,
-    drafts: {
-      type: 'array',
-      minItems: 1,
-      maxItems: 10,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['socialProfileId', 'caption'],
-        properties: {
-          socialProfileId: str(200),
-          caption: str(5000),
-          title: str(200, 0),
-          postType: { enum: POST_TYPES },
-          variantNote: str(1000, 0),
-          mediaNotes: str(2000, 0),
-          responseNote: { ...str(1000, 0), description: 'what changed in answer to review requests, and what was left as is and why; stored on the next revision' },
+  description: "Body of drafts:submit: rewrites of an existing post's drafts, or drafts for accounts it has none for.",
+  ...strictObject(
+    {
+      format: { const: 'bichon-drafts/v1' },
+      agent: agentSchema,
+      drafts: list(
+        {
+          ...DRAFT_SCHEMA,
+          properties: {
+            ...DRAFT_SCHEMA.properties,
+            responseNote: { ...str(1000, 0), description: 'what changed in answer to review requests, and what was left as is and why; stored on the next revision' },
+          },
         },
-      },
+        MAX_DRAFTS,
+        { minItems: 1 },
+      ),
     },
-  },
+    ['format', 'agent', 'drafts'],
+  ),
 };
 
 const PERSONA_SCHEMA = strictObject(
@@ -604,32 +596,39 @@ function validate(schema, value, at, issues) {
   return undefined;
 }
 
-function checkIdeationBundle(bundle, issues) {
-  if (!Array.isArray(bundle.ideas)) return;
-  bundle.ideas.forEach((idea, index) => {
-    if (!idea || typeof idea !== 'object') return;
-    const at = `ideas[${index}]`;
-    const evidence = Array.isArray(idea.evidence) ? idea.evidence : [];
+function checkPostsBundle(bundle, issues) {
+  if (!Array.isArray(bundle.posts)) return;
+  bundle.posts.forEach((post, index) => {
+    if (!post || typeof post !== 'object') return;
+    const at = `posts[${index}]`;
+    const evidence = Array.isArray(post.evidence) ? post.evidence : [];
     const inRange = (value) => Number.isInteger(value) && value >= 0 && value < evidence.length;
-    if (evidence.length > 0 && idea.primaryEvidence === undefined) {
+    if (evidence.length > 0 && post.primaryEvidence === undefined) {
       issues.push({ path: `${at}.primaryEvidence`, message: 'is required when evidence is not empty' });
     }
-    if (idea.primaryEvidence !== undefined && !inRange(idea.primaryEvidence)) {
-      issues.push({ path: `${at}.primaryEvidence`, message: `must index evidence (0..${evidence.length - 1}); got ${idea.primaryEvidence}` });
+    if (post.primaryEvidence !== undefined && !inRange(post.primaryEvidence)) {
+      issues.push({ path: `${at}.primaryEvidence`, message: `must index evidence (0..${evidence.length - 1}); got ${post.primaryEvidence}` });
     }
-    (Array.isArray(idea.claims) ? idea.claims : []).forEach((claim, claimIndex) => {
+    (Array.isArray(post.claims) ? post.claims : []).forEach((claim, claimIndex) => {
       if (claim && claim.evidence !== undefined && !inRange(claim.evidence)) {
         issues.push({ path: `${at}.claims[${claimIndex}].evidence`, message: `must index evidence (0..${evidence.length - 1}); got ${claim.evidence}` });
       }
     });
-    if (idea.whyNowCategory && idea.whyNowCategory !== 'evergreen' && evidence.length === 0) {
-      issues.push({ path: `${at}.whyNowCategory`, message: `${idea.whyNowCategory} needs cited evidence; use evergreen or cite a signal` });
+    if (post.whyNowCategory && post.whyNowCategory !== 'evergreen' && evidence.length === 0) {
+      issues.push({ path: `${at}.whyNowCategory`, message: `${post.whyNowCategory} needs cited evidence; use evergreen or cite a signal` });
     }
-    if (idea.assetId && !idea.assetReason) {
+    if (post.assetId && !post.assetReason) {
       issues.push({ path: `${at}.assetReason`, message: 'is required when assetId is set' });
     }
-    checkUnique(idea.formatPlan, 'socialProfileId', `${at}.formatPlan`, 'appears twice; plan one format per account', issues);
+    checkUnique(post.formatPlan, 'socialProfileId', `${at}.formatPlan`, 'appears twice; plan one format per account', issues);
+    checkUnique(post.drafts, 'socialProfileId', `${at}.drafts`, 'appears twice; send one draft per account', issues);
   });
+}
+
+function retiredPostsFormat(bundle) {
+  return bundle.format === 'bichon-ideation-run/v1'
+    ? [{ path: 'format', message: `bichon-ideation-run/v1 is retired: send a bichon-posts/v1 bundle with posts:submit, each post carrying its drafts (${SCRIPT} schema --bundle posts)` }]
+    : [];
 }
 
 function checkUnique(entries, field, at, message, issues) {
@@ -661,21 +660,30 @@ function checkSetupPatch(setup, issues) {
 const countOf = (value) => (Array.isArray(value) ? value.length : 0);
 
 const BUNDLES = {
-  'ideation-run': { schema: IDEATION_RUN_SCHEMA, check: checkIdeationBundle, counts: (bundle) => ({ ideas: bundle.ideas.length }) },
+  posts: {
+    schema: POSTS_SCHEMA,
+    check: checkPostsBundle,
+    retired: retiredPostsFormat,
+    counts: (bundle) => ({ posts: bundle.posts.length, drafts: bundle.posts.reduce((sum, post) => sum + post.drafts.length, 0) }),
+  },
   drafts: { schema: DRAFTS_SCHEMA, check: checkDraftsBundle, counts: (bundle) => ({ drafts: bundle.drafts.length }) },
   setup: { schema: SETUP_SCHEMA, counts: (setup) => ({ fields: Object.keys(setup).length, personas: countOf(setup.personas), keywords: countOf(setup.keywords) }) },
   'setup-patch': { schema: { ...SETUP_SCHEMA, required: [] }, check: checkSetupPatch, counts: (setup) => ({ fields: Object.keys(setup).length }) },
   personas: { schema: PERSONAS_SCHEMA, counts: (file) => ({ personas: file.personas.length }) },
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['ideation-run', 'drafts', 'setup', 'personas', 'research'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
-  const { schema, check } = BUNDLES[kind];
+  const { schema, check, retired } = BUNDLES[kind];
+  const isObject = bundle && typeof bundle === 'object' && !Array.isArray(bundle);
+  const hints = retired && isObject ? retired(bundle) : [];
   validate(schema, bundle, '', issues);
-  if (check && bundle && typeof bundle === 'object' && !Array.isArray(bundle)) check(bundle, issues);
-  return issues;
+  if (check && isObject) check(bundle, issues);
+  if (hints.length === 0) return issues;
+  const hinted = new Set(hints.map((hint) => hint.path));
+  return [...hints, ...issues.filter((issue) => !hinted.has(issue.path))];
 }
 
 function loadBundle(parsed, kind) {
@@ -875,7 +883,7 @@ const COMMANDS = {
     campaignRoute('/ideas'),
     (parsed) => ({ status: enumOption(parsed, 'status', IDEA_STATUSES) }),
   ),
-  'ideas:submit': sendFile('ideation-run', campaignRoute('/ideation-runs')),
+  'posts:submit': sendFile('posts', campaignRoute('/posts')),
   'run:get': get(idRoute('ideation-runs', 'id')),
   'drafts:submit': sendFile('drafts', idRoute('ideas', 'idea', '/drafts')),
   'draft:get': get(idRoute('drafts', 'id')),
@@ -920,7 +928,7 @@ const COMMANDS = {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
     if (bundle) return succeed(BUNDLES[bundle].schema);
-    return succeed({ ideationRun: IDEATION_RUN_SCHEMA, drafts: DRAFTS_SCHEMA, setup: SETUP_SCHEMA, personas: PERSONAS_SCHEMA, research: RESEARCH_ANALYSES_SCHEMA });
+    return succeed({ posts: POSTS_SCHEMA, drafts: DRAFTS_SCHEMA, setup: SETUP_SCHEMA, personas: PERSONAS_SCHEMA, research: RESEARCH_ANALYSES_SCHEMA });
   },
   help: async () => succeed({
     usage: `${SCRIPT} <command> [--options] [--pretty]`,
@@ -934,9 +942,9 @@ const COMMANDS = {
       evidence: `--campaign <campaignId> [--q <text>] [--limit 1..50] [--kind ${ITEM_KINDS.join('|')}]`,
       competitors: '--brand <brandId>',
       ideas: `--campaign <campaignId> [--status ${IDEA_STATUSES.join('|')}]`,
-      'ideas:submit': '--campaign <campaignId> --file <bundle.json> [--dry-run]',
+      'posts:submit': '--campaign <campaignId> --file <posts.json> [--dry-run]',
       'run:get': '--id <runId>',
-      'drafts:submit': '--idea <ideaId> --file <bundle.json> [--dry-run]',
+      'drafts:submit': '--idea <ideaId> --file <drafts.json> [--dry-run]',
       'draft:get': '--id <draftId>',
       'draft:submit': '--id <draftId>',
       'draft:media:add': '--id <draftId> --file <image.jpg|png|webp>',

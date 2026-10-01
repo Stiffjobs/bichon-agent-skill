@@ -3,6 +3,30 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.6.0 (2026-10-01)
+
+- `posts:submit --campaign <id> --file posts.json [--dry-run]` replaces
+  `ideas:submit`: one call stores the run, each accepted post's brief and its
+  captions, and voice-checks the drafts. It posts to
+  `POST /agent/v1/campaigns/:id/posts`; `--dry-run` reports
+  `bundle: 'posts'` with `posts` and `drafts` counts.
+- The bundle is `bichon-posts/v1` (`schema --bundle posts`): `posts[]`, at
+  most 5, each post is the old idea fields plus an optional `reviewNote`
+  (at most 300 chars, what the manager should check) and `drafts[]` (1–10,
+  one caption per target account). A `bichon-ideation-run/v1` bundle is
+  refused with a hint to use `posts:submit`; `noIdeasReason` is now
+  `noPostsReason`.
+- `drafts:submit --idea` rewrites a stored post's drafts or adds drafts for
+  accounts it has none for. `run:get` and `ideas` stay.
+- `context.limits.maxIdeas` is now `maxPosts`.
+- The `assigned` idea status is gone; `ideas --status assigned` is rejected.
+- A rejected draft is final: it can no longer be rewritten or resubmitted.
+  The post is discarded once every account's draft is rejected.
+- `reviews` returns at most 50 drafts, as the server does.
+- Breaking: needs the Bichon server release that has
+  `POST /campaigns/:id/posts`; older servers have no route for
+  `posts:submit`.
+
 ## 0.5.0 (2026-10-01)
 
 - `draft:media:add --id <draftId> --file <image>` uploads a JPEG, PNG or

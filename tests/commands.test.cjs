@@ -41,6 +41,7 @@ test('maps each read command to its route and query', async () => {
     [['competitors', '--brand', 'b1'], 'GET', '/agent/v1/brands/b1/competitors', {}],
     [['ideas', '--campaign', 'c1'], 'GET', '/agent/v1/campaigns/c1/ideas', {}],
     [['ideas', '--campaign', 'c1', '--status', 'killed'], 'GET', '/agent/v1/campaigns/c1/ideas', { status: 'killed' }],
+    [['ideas', '--campaign', 'c1', '--status', 'approved'], 'GET', '/agent/v1/campaigns/c1/ideas', { status: 'approved' }],
     [['run:get', '--id', 'r1'], 'GET', '/agent/v1/ideation-runs/r1', {}],
     [['draft:get', '--id', 'd1'], 'GET', '/agent/v1/drafts/d1', {}],
     [['draft:submit', '--id', 'd1'], 'POST', '/agent/v1/drafts/d1/submit', {}],
@@ -152,15 +153,16 @@ test('encodes ids into path segments', async () => {
 
 test('posts bundles verbatim to the submit routes', async () => {
   const dir = tempDir();
-  const { ideationRun, drafts } = skillExamples();
-  const runFile = writeJson(path.join(dir, 'run.json'), ideationRun);
+  const { posts, drafts } = skillExamples();
+  const postsFile = writeJson(path.join(dir, 'posts.json'), posts);
   const draftsFile = writeJson(path.join(dir, 'drafts.json'), drafts);
-  const ideas = await call(['ideas:submit', '--campaign', 'c1', '--file', runFile]);
-  assert.equal(ideas.code, 0, ideas.stdout);
-  assert.equal(ideas.requests[0].method, 'POST');
-  assert.equal(ideas.requests[0].path, '/agent/v1/campaigns/c1/ideation-runs');
-  assert.equal(ideas.requests[0].headers['content-type'], 'application/json');
-  assert.deepEqual(ideas.requests[0].body, ideationRun);
+  const submitted = await call(['posts:submit', '--campaign', 'c1', '--file', postsFile]);
+  assert.equal(submitted.code, 0, submitted.stdout);
+  assert.equal(submitted.requests.length, 1);
+  assert.equal(submitted.requests[0].method, 'POST');
+  assert.equal(submitted.requests[0].path, '/agent/v1/campaigns/c1/posts');
+  assert.equal(submitted.requests[0].headers['content-type'], 'application/json');
+  assert.deepEqual(submitted.requests[0].body, posts);
   const posted = await call(['drafts:submit', '--idea', 'i1', '--file', draftsFile]);
   assert.equal(posted.requests[0].path, '/agent/v1/ideas/i1/drafts');
   assert.deepEqual(posted.requests[0].body, drafts);
@@ -196,7 +198,9 @@ test('rejects bad options before any request', async () => {
     ['evidence', '--campaign', 'c1', '--limit', '51'],
     ['evidence', '--campaign', 'c1', '--limit', '5x'],
     ['ideas', '--campaign', 'c1', '--status', 'draft'],
-    ['ideas:submit', '--campaign', 'c1'],
+    ['ideas', '--campaign', 'c1', '--status', 'assigned'],
+    ['posts:submit', '--campaign', 'c1'],
+    ['posts:submit', '--file', 'x.json'],
     ['drafts:submit', '--file', 'x.json'],
     ['draft:get'],
     ['reviews'],
@@ -212,6 +216,21 @@ test('rejects bad options before any request', async () => {
     assert.equal(result.json.ok, false, args.join(' '));
     assert.equal(result.json.error.code, 'invalid_request', args.join(' '));
   }
+});
+
+test('the retired ideas:submit command is unknown', async () => {
+  const dir = tempDir();
+  const file = writeJson(path.join(dir, 'posts.json'), skillExamples().posts);
+  const result = await call(['ideas:submit', '--campaign', 'c1', '--file', file]);
+  assert.equal(result.code, 1);
+  assert.equal(result.requests.length, 0);
+  assert.equal(result.json.error.code, 'invalid_request');
+  assert.match(result.json.error.message, /Unknown command "ideas:submit"/);
+  assert.match(result.json.error.message, /posts:submit/);
+  const help = await call(['help']);
+  assert.ok('posts:submit' in help.json.data.commands);
+  assert.ok(!('ideas:submit' in help.json.data.commands));
+  assert.doesNotMatch(help.json.data.commands.ideas, /assigned/);
 });
 
 test('passes API error envelopes through unchanged with exit code 1', async () => {
