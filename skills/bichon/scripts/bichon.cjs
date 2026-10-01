@@ -11,10 +11,13 @@ const KEY_PREFIX = 'bichon_org_';
 const SCRIPT = './scripts/bichon.cjs';
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 120000;
+const UPLOAD_TIMEOUT_MS = 600000;
 const MAX_REPORTED_ISSUES = 50;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const IMAGE_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
-const BOOLEAN_FLAGS = new Set(['pretty', 'local', 'no-verify', 'dry-run', 'help', 'history']);
+const AD_MEDIA_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.mp4': 'video/mp4', '.mov': 'video/quicktime' };
+const BOOLEAN_FLAGS = new Set(['pretty', 'local', 'no-verify', 'dry-run', 'help', 'history', 'daily']);
 const REDACTED = '[redacted]';
 const SENSITIVE_FIELD_NAMES = new Set([
   'accesstoken',
@@ -43,6 +46,17 @@ const ITEM_KINDS = ['article', 'competitor_post', 'threads_post'];
 const ANALYSIS_CATEGORIES = ['report', 'announcement', 'opinion', 'how_to', 'data_point', 'product_post', 'promo', 'discussion', 'other'];
 const ANALYSIS_QUALITIES = ['useful', 'thin', 'promo', 'off_topic'];
 const ANALYSIS_RELEVANCE = ['direct', 'adjacent', 'off_topic'];
+const ADS_LEVELS = ['account', 'campaign', 'adset', 'ad'];
+const ADS_RANGES = ['today', 'yesterday', 'last_7d', 'last_14d', 'last_28d', 'last_30d', 'last_90d', 'this_month', 'last_month'];
+const ADS_BREAKDOWNS = ['age', 'gender', 'country', 'publisher_platform', 'platform_position', 'device_platform'];
+const AD_SEGMENTS = { campaign: 'campaigns', adset: 'adsets', creative: 'creatives', ad: 'ads' };
+const AD_KINDS = Object.keys(AD_SEGMENTS);
+const AD_UPDATE_KINDS = ['campaign', 'adset', 'ad'];
+const AD_LIST_KINDS = ['campaigns', 'adsets', 'ads', 'creatives'];
+const AD_MEDIA_KINDS = ['image', 'video'];
+const TARGETING_TYPES = ['interest', 'geo', 'locale'];
+const META_ID = /^\d{1,32}$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const HTTP_CODES = {
   400: 'invalid_request',
   401: 'unauthorized',
@@ -109,6 +123,28 @@ function enumOption(parsed, name, allowed) {
   const value = optionalOption(parsed, name);
   if (value !== undefined && !allowed.includes(value)) {
     throw new CliError('invalid_request', `--${name} must be one of: ${allowed.join(', ')}.`);
+  }
+  return value;
+}
+
+function requiredEnumOption(parsed, name, allowed) {
+  const value = enumOption(parsed, name, allowed);
+  if (value === undefined) throw new CliError('invalid_request', `Missing --${name} ${allowed.join('|')}.`);
+  return value;
+}
+
+function metaIdOption(parsed, name, required = false) {
+  const value = required ? requireOption(parsed, name) : optionalOption(parsed, name);
+  if (value !== undefined && !META_ID.test(value)) {
+    throw new CliError('invalid_request', `--${name} must be a Meta id (digits only).`);
+  }
+  return value;
+}
+
+function dateOption(parsed, name) {
+  const value = optionalOption(parsed, name);
+  if (value !== undefined && (!DATE.test(value) || Number.isNaN(Date.parse(value)))) {
+    throw new CliError('invalid_request', `--${name} must be a YYYY-MM-DD date.`);
   }
   return value;
 }
@@ -705,9 +741,169 @@ function checkSetupPatch(setup, issues) {
   if (Object.keys(setup).length === 0) issues.push({ path: '(root)', message: 'sets no fields; name at least one to change' });
 }
 
+// Ad params are Meta Marketing API fields, checked against the same allowlist
+// the server forwards (convex/lib/metaAds.ts checkAdParams).
+const AD_OBJECTIVES = ['OUTCOME_AWARENESS', 'OUTCOME_TRAFFIC', 'OUTCOME_ENGAGEMENT', 'OUTCOME_LEADS', 'OUTCOME_APP_PROMOTION', 'OUTCOME_SALES'];
+const AD_BID_STRATEGIES = ['LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP', 'LOWEST_COST_WITH_MIN_ROAS'];
+const adText = (max, values) => ({ type: 'string', max, values });
+const adName = adText(400);
+const adTime = adText(40);
+const adMoney = { type: 'money' };
+const adId = { type: 'id' };
+const adObject = { type: 'object' };
+const adArray = { type: 'array' };
+const AD_PARAMS = {
+  campaign: {
+    fields: {
+      name: adName,
+      objective: adText(undefined, AD_OBJECTIVES),
+      special_ad_categories: adArray,
+      special_ad_category_country: adArray,
+      buying_type: adText(40),
+      bid_strategy: adText(undefined, AD_BID_STRATEGIES),
+      daily_budget: adMoney,
+      lifetime_budget: adMoney,
+      spend_cap: adMoney,
+      start_time: adTime,
+      stop_time: adTime,
+      is_adset_budget_sharing_enabled: { type: 'boolean' },
+    },
+    required: ['name', 'objective'],
+    createOnly: ['objective', 'buying_type'],
+  },
+  adset: {
+    fields: {
+      name: adName,
+      campaign_id: adId,
+      optimization_goal: adText(80),
+      billing_event: adText(80),
+      targeting: adObject,
+      daily_budget: adMoney,
+      lifetime_budget: adMoney,
+      bid_amount: adMoney,
+      bid_strategy: adText(undefined, AD_BID_STRATEGIES),
+      start_time: adTime,
+      end_time: adTime,
+      promoted_object: adObject,
+      destination_type: adText(80),
+      attribution_spec: adArray,
+      pacing_type: adArray,
+      frequency_control_specs: adArray,
+      is_dynamic_creative: { type: 'boolean' },
+      daily_min_spend_target: adMoney,
+      daily_spend_cap: adMoney,
+      lifetime_min_spend_target: adMoney,
+      lifetime_spend_cap: adMoney,
+      dsa_beneficiary: adText(200),
+      dsa_payor: adText(200),
+      regional_regulated_categories: adArray,
+      regional_regulation_identities: adObject,
+    },
+    required: ['name', 'campaign_id', 'optimization_goal', 'targeting'],
+    createOnly: ['campaign_id'],
+  },
+  creative: {
+    fields: {
+      name: adName,
+      object_story_spec: adObject,
+      object_story_id: adText(80),
+      asset_feed_spec: adObject,
+      source_instagram_media_id: adId,
+      instagram_user_id: adId,
+      url_tags: adText(2000),
+      degrees_of_freedom_spec: adObject,
+      contextual_multi_ads: adObject,
+      product_set_id: adId,
+    },
+    required: ['name'],
+    createOnly: [],
+    oneOf: ['object_story_spec', 'object_story_id', 'asset_feed_spec', 'source_instagram_media_id'],
+  },
+  ad: {
+    fields: {
+      name: adName,
+      adset_id: adId,
+      creative: adObject,
+      tracking_specs: adArray,
+      conversion_domain: adText(255),
+    },
+    required: ['name', 'adset_id', 'creative'],
+    createOnly: ['adset_id'],
+  },
+};
+
+const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+function adFieldIssue(spec, value) {
+  switch (spec.type) {
+    case 'string':
+      if (typeof value !== 'string' || value.trim() === '') return 'must be a non-empty string';
+      if (spec.values && !spec.values.includes(value)) return `must be one of ${spec.values.join(', ')}`;
+      if (spec.max !== undefined && value.length > spec.max) return `is ${value.length} characters; max ${spec.max}`;
+      return null;
+    case 'id':
+      return typeof value === 'string' && META_ID.test(value) ? null : 'must be a Meta id (digits, as a string)';
+    case 'money':
+      return Number.isInteger(value) && value > 0
+        ? null
+        : 'must be a positive integer in the smallest currency unit (amount × budgetUnitsPerCurrency)';
+    case 'boolean':
+      return typeof value === 'boolean' ? null : 'must be boolean';
+    case 'object':
+      return isPlainObject(value) ? null : 'must be an object';
+    default:
+      return Array.isArray(value) ? null : 'must be an array';
+  }
+}
+
+function checkAdParams(kind, mode, params, issues) {
+  const { fields, required, createOnly, oneOf } = AD_PARAMS[kind];
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'status' && kind !== 'creative') {
+      if (value !== 'PAUSED') issues.push({ path: key, message: 'may only be PAUSED; a manager activates ads in the Bichon dashboard' });
+      continue;
+    }
+    const spec = Object.prototype.hasOwnProperty.call(fields, key) ? fields[key] : undefined;
+    if (!spec) {
+      issues.push({ path: key, message: `is not an allowed field (allowed: ${Object.keys(fields).join(', ')})` });
+    } else if (mode === 'update' && createOnly.includes(key)) {
+      issues.push({ path: key, message: 'cannot be changed after creation' });
+    } else {
+      const message = adFieldIssue(spec, value);
+      if (message) issues.push({ path: key, message });
+    }
+  }
+  if (kind === 'ad' && isPlainObject(params.creative) && !(typeof params.creative.creative_id === 'string' && META_ID.test(params.creative.creative_id))) {
+    issues.push({ path: 'creative.creative_id', message: 'must be the id of a creative in this ad account' });
+  }
+  if (mode === 'update') {
+    if (Object.keys(params).length === 0) issues.push({ path: '(root)', message: 'has no field to update' });
+    return;
+  }
+  for (const key of required) {
+    if (params[key] === undefined) issues.push({ path: key, message: 'is required' });
+  }
+  if (oneOf && !oneOf.some((key) => params[key] !== undefined)) {
+    issues.push({ path: '(root)', message: `needs one of ${oneOf.join(', ')}` });
+  }
+}
+
 const countOf = (value) => (Array.isArray(value) ? value.length : 0);
 
+function adBundles() {
+  const entry = (kind, mode) => ({
+    schema: { type: 'object' },
+    check: (params, issues) => checkAdParams(kind, mode, params, issues),
+    counts: (params) => ({ fields: Object.keys(params).length }),
+  });
+  return Object.fromEntries([
+    ...AD_KINDS.map((kind) => [`ad-${kind}`, entry(kind, 'create')]),
+    ...AD_UPDATE_KINDS.map((kind) => [`ad-${kind}-update`, entry(kind, 'update')]),
+  ]);
+}
+
 const BUNDLES = {
+  ...adBundles(),
   posts: {
     schema: POSTS_SCHEMA,
     check: checkPostsBundle,
@@ -840,14 +1036,11 @@ function del(route) {
   return withConfig(async (parsed, config) => emit(await api(config, 'DELETE', route(parsed))));
 }
 
-// An image reaches a draft in three steps: a signed upload URL from Bichon,
-// the file PUT straight to storage, then the uploaded key attached.
-async function addDraftMedia(parsed, config) {
-  const draftRoute = idRoute('drafts', 'id')(parsed);
+function readUploadFile(parsed, types, described) {
   const file = path.resolve(requireOption(parsed, 'file'));
-  const contentType = IMAGE_TYPES[path.extname(file).toLowerCase()];
+  const contentType = types[path.extname(file).toLowerCase()];
   if (!contentType) {
-    throw new CliError('invalid_request', `--file must be a JPEG, PNG or WebP image (${Object.keys(IMAGE_TYPES).join(', ')}).`);
+    throw new CliError('invalid_request', `--file must be ${described} (${Object.keys(types).join(', ')}).`);
   }
   let bytes;
   try {
@@ -855,17 +1048,26 @@ async function addDraftMedia(parsed, config) {
   } catch {
     throw new CliError('invalid_request', `Cannot read ${file}.`);
   }
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_BYTES) {
-    throw new CliError('invalid_request', `${file} is ${bytes.byteLength} bytes; images must be 1 byte to ${MAX_IMAGE_BYTES} bytes.`);
+  const kind = contentType.split('/')[0];
+  const max = kind === 'video' ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+  if (bytes.byteLength === 0 || bytes.byteLength > max) {
+    throw new CliError('invalid_request', `${file} is ${bytes.byteLength} bytes; ${kind}s must be 1 byte to ${max} bytes.`);
   }
-  const upload = (await api(config, 'POST', `${draftRoute}/media/uploads`, { body: { contentType } })).data;
+  return { file, contentType, bytes };
+}
+
+// A file reaches Bichon in three steps: a signed upload URL from
+// `${route}/uploads`, the file PUT straight to storage, then the caller
+// hands the returned key to `route`.
+async function uploadToStorage(config, route, { file, contentType, bytes }) {
+  const upload = (await api(config, 'POST', `${route}/uploads`, { body: { contentType } })).data;
   let response;
   try {
     response = await fetch(upload.uploadUrl, {
       method: 'PUT',
       headers: { 'Content-Type': contentType },
       body: bytes,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
     });
   } catch (err) {
     throw new CliError('network_error', `Could not upload ${file} to storage (${(err && err.message) || 'unknown error'}).`);
@@ -873,8 +1075,64 @@ async function addDraftMedia(parsed, config) {
   if (!response.ok) {
     throw new CliError('upload_failed', `Storage refused the upload (HTTP ${response.status}).`);
   }
-  const attached = await api(config, 'POST', `${draftRoute}/media`, { body: { key: upload.key, contentType } });
-  return succeed({ ...attached.data, contentType, bytes: bytes.byteLength });
+  return upload;
+}
+
+async function addDraftMedia(parsed, config) {
+  const mediaRoute = idRoute('drafts', 'id', '/media')(parsed);
+  const upload = readUploadFile(parsed, IMAGE_TYPES, 'a JPEG, PNG or WebP image');
+  const { key } = await uploadToStorage(config, mediaRoute, upload);
+  const attached = await api(config, 'POST', mediaRoute, { body: { key, contentType: upload.contentType } });
+  return succeed({ ...attached.data, contentType: upload.contentType, bytes: upload.bytes.byteLength });
+}
+
+async function addAdMedia(parsed, config) {
+  const mediaRoute = brandRoute('/ads/media')(parsed);
+  const name = optionalOption(parsed, 'name');
+  if (name !== undefined && name.length > 100) throw new CliError('invalid_request', '--name must be 1 to 100 characters.');
+  const upload = readUploadFile(parsed, AD_MEDIA_TYPES, 'a JPEG or PNG image, or an MP4 or MOV video');
+  const { key } = await uploadToStorage(config, mediaRoute, upload);
+  const added = await api(config, 'POST', mediaRoute, { body: name === undefined ? { key } : { key, name } });
+  return succeed({ ...added.data, contentType: upload.contentType, bytes: upload.bytes.byteLength });
+}
+
+function adsInsightsQuery(parsed) {
+  const range = enumOption(parsed, 'range', ADS_RANGES);
+  const since = dateOption(parsed, 'since');
+  const until = dateOption(parsed, 'until');
+  if (range && (since || until)) throw new CliError('invalid_request', 'Give either --range or --since and --until, not both.');
+  if (Boolean(since) !== Boolean(until)) throw new CliError('invalid_request', '--since and --until go together.');
+  if (since && since > until) throw new CliError('invalid_request', '--since must not be after --until.');
+  return {
+    level: enumOption(parsed, 'level', ADS_LEVELS),
+    range,
+    since,
+    until,
+    daily: flagOption(parsed, 'daily') ? 1 : undefined,
+    breakdown: enumOption(parsed, 'breakdown', ADS_BREAKDOWNS),
+    campaignId: metaIdOption(parsed, 'campaign'),
+    adsetId: metaIdOption(parsed, 'adset'),
+    adId: metaIdOption(parsed, 'ad'),
+    limit: integerOption(parsed, 'limit', 1, 500),
+  };
+}
+
+function adsListQuery(parsed) {
+  const kind = requiredEnumOption(parsed, 'kind', AD_LIST_KINDS);
+  const campaignId = metaIdOption(parsed, 'campaign');
+  const adsetId = metaIdOption(parsed, 'adset');
+  if (campaignId && (kind === 'campaigns' || kind === 'creatives')) {
+    throw new CliError('invalid_request', '--campaign filters adsets and ads only.');
+  }
+  if (adsetId && kind !== 'ads') throw new CliError('invalid_request', '--adset filters ads only.');
+  return { campaignId, adsetId, limit: integerOption(parsed, 'limit', 1, 200) };
+}
+
+function adsTargetingQuery(parsed) {
+  const type = requiredEnumOption(parsed, 'type', TARGETING_TYPES);
+  const q = requireOption(parsed, 'q');
+  if (q.length > 100) throw new CliError('invalid_request', '--q must be 1 to 100 characters.');
+  return { type, q };
 }
 
 const idRoute = (collection, option, suffix = '') => (parsed) => `/${collection}/${segment(requireOption(parsed, option))}${suffix}`;
@@ -974,6 +1232,24 @@ const COMMANDS = {
   'research:add': sendFile('captures', campaignRoute('/research/captures')),
   'research:sources': get(brandRoute('/research/sources')),
   'analysis:request': post((parsed) => `${brandRoute()(parsed)}${idRoute('accounts', 'profile', '/analysis')(parsed)}`),
+  'ads:account': get(brandRoute('/ads/account')),
+  'ads:insights': get(brandRoute('/ads/insights'), adsInsightsQuery),
+  'ads:list': get((parsed) => brandRoute(`/ads/${requiredEnumOption(parsed, 'kind', AD_LIST_KINDS)}`)(parsed), adsListQuery),
+  'ads:create': withConfig((parsed, config) => {
+    const kind = requiredEnumOption(parsed, 'kind', AD_KINDS);
+    return submitBundle(parsed, config, `ad-${kind}`, brandRoute(`/ads/${AD_SEGMENTS[kind]}`)(parsed));
+  }),
+  'ads:update': withConfig((parsed, config) => {
+    const kind = requiredEnumOption(parsed, 'kind', AD_UPDATE_KINDS);
+    const route = `${brandRoute(`/ads/${AD_SEGMENTS[kind]}`)(parsed)}/${metaIdOption(parsed, 'id', true)}`;
+    return submitBundle(parsed, config, `ad-${kind}-update`, route, { method: 'PATCH' });
+  }),
+  'ads:media:add': withConfig(addAdMedia),
+  'ads:media': get(
+    brandRoute('/ads/media'),
+    (parsed) => ({ kind: enumOption(parsed, 'kind', AD_MEDIA_KINDS), limit: integerOption(parsed, 'limit', 1, 200) }),
+  ),
+  'ads:targeting': get(brandRoute('/ads/targeting'), adsTargetingQuery),
   schema: async (args) => {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
@@ -1013,6 +1289,14 @@ const COMMANDS = {
       'research:add': '--campaign <campaignId> --file <captures.json> [--dry-run]',
       'research:sources': '--brand <brandId>',
       'analysis:request': '--brand <brandId> --profile <socialProfileId>',
+      'ads:account': '--brand <brandId>',
+      'ads:insights': `--brand <brandId> [--level ${ADS_LEVELS.join('|')}] [--range ${ADS_RANGES.join('|')}] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown ${ADS_BREAKDOWNS.join('|')}] [--campaign <id>] [--adset <id>] [--ad <id>] [--limit 1..500]`,
+      'ads:list': `--brand <brandId> --kind ${AD_LIST_KINDS.join('|')} [--campaign <id>] [--adset <id>] [--limit 1..200]`,
+      'ads:create': `--brand <brandId> --kind ${AD_KINDS.join('|')} --file <params.json> [--dry-run]`,
+      'ads:update': `--brand <brandId> --kind ${AD_UPDATE_KINDS.join('|')} --id <metaId> --file <params.json> [--dry-run]`,
+      'ads:media:add': '--brand <brandId> --file <image.jpg|png|video.mp4|mov> [--name <name>]',
+      'ads:media': `--brand <brandId> [--kind ${AD_MEDIA_KINDS.join('|')}] [--limit 1..200]`,
+      'ads:targeting': `--brand <brandId> --type ${TARGETING_TYPES.join('|')} --q <text>`,
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
     env: ['BICHON_AGENT_API_KEY', 'BICHON_AGENT_BASE_URL', 'BICHON_CONFIG_PATH'],

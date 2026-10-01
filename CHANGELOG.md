@@ -3,6 +3,46 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.8.0 (2026-10-02)
+
+- Ads commands, all under `--brand <id>` and backed by
+  `/agent/v1/brands/:brandId/ads`:
+  - `ads:account`: the connected Meta ad account (`currency`,
+    `timezoneName`, `budgetUnitsPerCurrency`), its Pages with linked
+    Instagram accounts, and pixels.
+  - `ads:insights [--level account|campaign|adset|ad] [--range <preset>]
+    [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown <b>]
+    [--campaign|--adset|--ad <id>] [--limit 1..500]`: performance rows;
+    `--range` with `--since`/`--until`, or only one of the two dates, is
+    rejected locally.
+  - `ads:list --kind campaigns|adsets|ads|creatives [--campaign <id>]
+    [--adset <id>] [--limit 1..200]`.
+  - `ads:create --kind campaign|adset|creative|ad --file params.json
+    [--dry-run]` and `ads:update --kind campaign|adset|ad --id <metaId>
+    --file patch.json [--dry-run]`: Meta Marketing API fields, checked
+    locally against the server's allowlist (unknown or missing fields, a
+    `status` other than `PAUSED`, money that is not a positive integer,
+    fields fixed at creation).
+  - `ads:media:add --file <jpg|png|mp4|mov> [--name <name>]`: images up to
+    8 MB, videos up to 200 MB, uploaded the way `draft:media:add` uploads;
+    `ads:media [--kind image|video] [--limit 1..200]` lists them.
+  - `ads:targeting --type interest|geo|locale --q <text>`.
+- Meta ids (`--campaign`, `--adset`, `--ad`, `--id`) must be digit strings.
+- Storage uploads (`draft:media:add` too) now time out after 10 minutes
+  instead of 2, for large videos.
+- SKILL.md gains an Ads section: the prerequisite connection, reading and
+  reporting performance, the build order with one example per kind, and the
+  rules (everything paused, only a manager activates, money in the smallest
+  currency unit, new creative instead of an edit, Taiwan and EU advertiser
+  identity, `meta_rejected`). The skill also triggers for ads work.
+- SKILL.md documents two server defaults: a campaign with no budget of its
+  own (budget on the ad sets) gets `is_adset_budget_sharing_enabled: false`
+  unless set, and a new ad set without `targeting.targeting_automation` gets
+  `{ advantage_audience: 0 }`, so the targeting is used as written. Params
+  target Meta Marketing API v25.0.
+- Needs the Bichon server release that has the `/brands/:brandId/ads`
+  routes; older servers have no route for the `ads:*` commands.
+
 ## 0.7.0 (2026-10-01)
 
 - `research:add --campaign <id> --file captures.json [--dry-run]` hands in
