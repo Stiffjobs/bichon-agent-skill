@@ -3,6 +3,21 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.10.0 (2026-10-02)
+
+- `research:pending` batches come nearest the brief first. The result (and
+  the `--out` summary) carries `order`: `similarity` for items ranked
+  against the campaign's brief and personas, best first, or `recency` for
+  items the server could not rank (imported Threads posts, or no ranking
+  available), newest first.
+- `research:submit` returns `useful`: how many stored analyses are useful and
+  on-topic.
+- SKILL.md gains a Nearest first section: analyze every `recency` batch, and
+  stop leasing `similarity` batches once two rounds in a row come back less
+  than a third useful.
+- Older servers return neither field; the skill then analyzes everything, as
+  before.
+
 ## 0.9.0 (2026-10-02)
 
 - Every ad carries a `brief`, what the ad tests: `ads:create --kind ad`

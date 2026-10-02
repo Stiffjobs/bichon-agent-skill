@@ -1240,7 +1240,7 @@ const COMMANDS = {
       const items = Array.isArray(data.items) ? data.items : [];
       const kinds = {};
       for (const item of items) kinds[item.kind] = (kinds[item.kind] || 0) + 1;
-      return { leaseId: data.leaseId || null, leaseUntil: data.leaseUntil || null, remaining: data.remaining ?? null, items: items.length, kinds };
+      return { leaseId: data.leaseId || null, leaseUntil: data.leaseUntil || null, remaining: data.remaining ?? null, order: data.order || null, items: items.length, kinds };
     },
   ),
   'research:submit': sendFile('research', campaignRoute('/research/analyses')),

@@ -63,6 +63,7 @@ test('research:pending --out writes the batch and prints the lease and counts on
     leaseId: 'lease_1',
     leaseUntil: 1790000000000,
     remaining: 40,
+    order: 'similarity',
     items: [
       { itemRef: 'v1', kind: 'article', text: 'Full article text.', engagement: null },
       { itemRef: 'v2', kind: 'competitor_post', text: 'Post text.', engagement: { likes: 900 } },
@@ -84,6 +85,7 @@ test('research:pending --out writes the batch and prints the lease and counts on
     leaseId: 'lease_1',
     leaseUntil: 1790000000000,
     remaining: 40,
+    order: 'similarity',
     items: 4,
     kinds: { article: 1, competitor_post: 1, threads_post: 2 },
   });

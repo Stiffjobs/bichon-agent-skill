@@ -92,8 +92,8 @@ code 1 on any failure. The API key is never printed.
 | `threads --campaign <id>` | The campaign's Threads keywords and analyzed Threads posts: `{ keywords, items, pendingCount }` |
 | `research:collect --campaign <id> [--kinds rss,competitors,threads]` | Start collecting sources (default: all three): `{ runs: [{ kind, runId, status, note? }] }`; a misconfigured kind comes back `skipped` with a `note` |
 | `research:runs --campaign <id>` | The newest 20 collection runs: `kind`, `status`, `startedAt`, `finishedAt`, `newItems`, `note` |
-| `research:pending --campaign <id> [--limit 1..25] [--kind article\|competitor_post\|threads_post] [--out batch.json]` | Lease up to `limit` unanalyzed items for 20 minutes: `{ leaseId, leaseUntil, remaining, items }`; `--out` writes the batch to a file and prints `leaseId`, `remaining` and counts |
-| `research:submit --campaign <id> --file analyses.json [--dry-run]` | Validate a ResearchAnalysisBundle locally, then store it: `{ stored, rejected: [{ itemRef, code, reason }], remaining }` |
+| `research:pending --campaign <id> [--limit 1..25] [--kind article\|competitor_post\|threads_post] [--out batch.json]` | Lease up to `limit` unanalyzed items for 20 minutes: `{ leaseId, leaseUntil, remaining, order: similarity\|recency, items }`; `--out` writes the batch to a file and prints `leaseId`, `remaining`, `order` and counts |
+| `research:submit --campaign <id> --file analyses.json [--dry-run]` | Validate a ResearchAnalysisBundle locally, then store it: `{ stored, useful, rejected: [{ itemRef, code, reason }], remaining }` |
 | `research:add --campaign <id> --file captures.json [--dry-run]` | Validate a ResearchCaptureBundle locally, then store pages and posts you read yourself as pending research items: `{ added, updated, unchanged, rejected: [{ index, url, code, reason }], captured, limit }` |
 | `research:sources --brand <id>` | Source evaluation: per RSS source, competitor and Threads keyword, how many items were `analyzed`, `useful`, `relevant`, `thin`, `promo`, `offTopic`, and `lastAnalyzedAt` |
 | `schema [--bundle posts\|drafts\|setup\|personas\|research\|captures]` | JSON Schema (draft 2020-12) for the bundles |
@@ -196,7 +196,7 @@ file with `--impact-key <impactKey>`.
    when it is `null` the campaign setup is unfinished: ask the manager for it
    and set it with `campaigns:update` (Intake) before drafting.
 3. **Research.** When `context.research.pending` is above 0, analyze the
-   pending items first (see Research). Then run `evidence --campaign <id>` for
+   pending items first, nearest the brief first (see Research). Then run `evidence --campaign <id>` for
    the newest analyzed items and `evidence --q "<angle>"` for each angle you
    are considering, `threads --campaign <id>` for the campaign's keywords and
    analyzed Threads posts, and `competitors --brand <id>` for the competitors'
@@ -294,7 +294,8 @@ and `competitors` return analyzed items (summary, facts, relevance, engagement
 read), never raw text or metrics. `context.research` counts `analyzed`,
 `pending` and `useful` items, and `evidence` and `threads` return
 `pendingCount`.
-Analyze until nothing is pending before you ideate.
+Analyze before you ideate: everything, or the items nearest the brief until
+the batches stop paying off (Nearest first, below).
 
 1. **Collect** only when the manager asks, or when `research:runs` shows no
    finished run of a kind in the last day. `research:collect --campaign <id>`
@@ -304,8 +305,8 @@ Analyze until nothing is pending before you ideate.
 2. **Wait.** `research:runs --campaign <id>` about once a minute until the
    runs you started have a `finishedAt`; `newItems` says what arrived.
 3. **Lease batches.** `research:pending --campaign <id> --limit 25 --out
-   work/batch-1.json` leases up to 25 unanalyzed items (newest first) to you
-   for 20 minutes and prints `leaseId`, `remaining` and counts. Each call
+   work/batch-1.json` leases up to 25 unanalyzed items to you for 20 minutes
+   and prints `leaseId`, `remaining`, `order` and counts. Each call
    leases different items, so parallel batches never overlap. Lease a batch
    only when an analyst can start on it now; an expired lease returns its
    items to the pool.
@@ -315,13 +316,32 @@ Analyze until nothing is pending before you ideate.
    subagents analyze the batches themselves, one after another, following
    the same brief.
 5. **Submit** each finished file: `research:submit --campaign <id> --file
-   work/analyses-1.json` returns `{ stored, rejected, remaining }`. A
+   work/analyses-1.json` returns `{ stored, useful, rejected, remaining }`
+   (`useful`: stored analyses that are useful and on-topic). A
    `validation_failed` names the paths to fix; fix them (or send them back to
    the analyst) and resubmit. `not_leased` rejections are items whose lease
    expired or belongs to another run; they come back in a later batch.
 6. **Repeat** steps 3–5 until `research:pending` returns no items and
-   `remaining` is 0. Then ideate from `evidence`, `threads` and
-   `competitors`.
+   `remaining` is 0, or until Nearest first says to stop. Then ideate from
+   `evidence`, `threads` and `competitors`.
+
+**Nearest first.** Each `research:pending` batch says how it is ordered:
+
+- `order: "recency"`: items the server could not rank against the brief
+  (imported Threads posts, or no ranking is available right now), newest
+  first. Analyze all of them.
+- `order: "similarity"`: the unanalyzed items closest to the campaign's brief
+  and personas, best first. Every later batch is further from the brief than
+  this one.
+
+A round is the batches you leased together. After each round of `similarity`
+batches, add up `stored` and `useful` from their `research:submit` results.
+Stop leasing once two rounds in a row come back less than a third useful:
+what is left is further from the brief and would mostly be labelled
+off-topic. The items you leave stay pending; report how many (`remaining`)
+and why you stopped. Go on to the rest only when the manager asks for a full
+pass or the evidence is still too thin for the brief. The ranking only orders
+the work: label every item honestly, a near item can still be thin or promo.
 
 Items are analyzed per brief version: when the brief changes, they become
 pending again and are re-analyzed against the new brief.

@@ -60,7 +60,8 @@ Research: before writing posts, the agent analyzes what Bichon collected for the
 campaign (articles, competitor posts, Threads posts). It leases batches with
 `research:pending`, hands each batch to an analyst subagent (in Claude Code,
 one Opus subagent per batch, several in parallel) and stores the results with
-`research:submit` until nothing is pending. Posts cite analyzed items
+`research:submit`. Batches come nearest the brief first, so it stops once
+they stop turning up useful items instead of analyzing everything. Posts cite analyzed items
 only; ask for a fresh collection ("collect new research for the autumn
 campaign") when the sources are stale.
 
