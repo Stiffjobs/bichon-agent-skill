@@ -49,6 +49,8 @@ function assertRejected(result, paths) {
 test('maps the ads read commands to their routes and queries', async () => {
   const cases = [
     [['ads:account', '--brand', 'b1'], '/agent/v1/brands/b1/ads/account', {}],
+    [['ads:records', '--brand', 'b1'], '/agent/v1/brands/b1/ads/records', {}],
+    [['ads:records', '--brand', 'b1', '--campaign', '120210000000000001', '--adset', '120210000000000002', '--limit', '200'], '/agent/v1/brands/b1/ads/records', { campaignId: '120210000000000001', adsetId: '120210000000000002', limit: '200' }],
     [['ads:insights', '--brand', 'b1'], '/agent/v1/brands/b1/ads/insights', {}],
     [
       ['ads:insights', '--brand', 'b1', '--level', 'ad', '--range', 'last_7d', '--daily', '--breakdown', 'age', '--campaign', '120210000000000001', '--adset', '120210000000000002', '--ad', '120210000000000004', '--limit', '500'],
@@ -113,6 +115,10 @@ test('rejects bad ads options before any request', async () => {
     ['ads:update', '--brand', 'b1', '--kind', 'ad', '--file', 'x.json'],
     ['ads:update', '--brand', 'b1', '--kind', 'ad', '--id', 'abc', '--file', 'x.json'],
     ['ads:media:add', '--brand', 'b1'],
+    ['ads:records'],
+    ['ads:records', '--brand', 'b1', '--campaign', 'c1'],
+    ['ads:records', '--brand', 'b1', '--adset', '1x'],
+    ['ads:records', '--brand', 'b1', '--limit', '201'],
   ];
   for (const args of invalid) {
     const result = await call(args);
@@ -183,6 +189,61 @@ test('ads:create rejects unknown fields, missing required fields, activation and
 
   const paused = await create('campaign', { ...clone(campaign), status: 'PAUSED', daily_budget: 2000 });
   assert.equal(paused.code, 0, paused.stdout);
+});
+
+test('an ad needs a brief that says what it tests', async () => {
+  const create = (kind, params) => call(['ads:create', '--brand', 'b1', '--kind', kind, '--file', file(params)]);
+  const { campaign, adset, creative, ad } = adExamples();
+  assert.ok(ad.brief && ad.brief.angle && ad.brief.hook);
+
+  const briefless = clone(ad);
+  delete briefless.brief;
+  const issues = assertRejected(await create('ad', briefless), ['brief']);
+  assert.match(issues.find((issue) => issue.path === 'brief').message, /angle, hook/);
+
+  assertRejected(await create('ad', { ...clone(ad), brief: 'grind not beans' }), ['brief']);
+  assertRejected(await create('ad', { ...clone(ad), brief: { hook: 'Sour cup?' } }), ['brief.angle']);
+  assertRejected(
+    await create('ad', {
+      ...clone(ad),
+      brief: { angle: 'a'.repeat(301), hook: ' ', personaKey: 'p'.repeat(81), offer: 'o'.repeat(201), coreMessage: 'c'.repeat(501), ideaId: 7, audience: 'home brewers' },
+    }),
+    ['brief.angle', 'brief.hook', 'brief.personaKey', 'brief.offer', 'brief.coreMessage', 'brief.ideaId', 'brief.audience'],
+  );
+
+  const minimal = await create('ad', { ...clone(ad), brief: { angle: 'Grind, not beans.', hook: 'Sour cup?' } });
+  assert.equal(minimal.code, 0, minimal.stdout);
+  assert.deepEqual(minimal.requests[0].body.brief, { angle: 'Grind, not beans.', hook: 'Sour cup?' });
+
+  for (const [kind, params] of Object.entries({ campaign, adset, creative })) {
+    const refused = assertRejected(await create(kind, { ...clone(params), brief: clone(ad.brief) }), ['brief']);
+    assert.match(refused.find((issue) => issue.path === 'brief').message, /ads only/);
+  }
+  const update = await call(['ads:update', '--brand', 'b1', '--kind', 'adset', '--id', '1', '--file', file({ brief: clone(ad.brief) })]);
+  assertRejected(update, ['brief']);
+});
+
+test('ads:update takes a brief alone, or with other fields', async () => {
+  const { ad } = adExamples();
+  server.reply(() => ok({ id: '120210000000000004', kind: 'ad', updated: ['brief'] }));
+  try {
+    const briefOnly = await call(['ads:update', '--brand', 'b1', '--kind', 'ad', '--id', '120210000000000004', '--file', file({ brief: ad.brief })]);
+    assert.equal(briefOnly.code, 0, briefOnly.stdout);
+    assert.equal(briefOnly.requests[0].method, 'PATCH');
+    assert.equal(briefOnly.requests[0].path, '/agent/v1/brands/b1/ads/ads/120210000000000004');
+    assert.deepEqual(briefOnly.requests[0].body, { brief: ad.brief });
+
+    const both = { name: 'Sour cup fix · v2', creative: { creative_id: '120210000000000011' }, brief: ad.brief };
+    const swapped = await call(['ads:update', '--brand', 'b1', '--kind', 'ad', '--id', '120210000000000004', '--file', file(both), '--dry-run']);
+    assert.equal(swapped.code, 0, swapped.stdout);
+    assert.equal(swapped.requests.length, 0);
+    assert.deepEqual(swapped.json.data, { valid: true, dryRun: true, bundle: 'ad-ad-update', counts: { fields: 3 } });
+
+    const partial = await call(['ads:update', '--brand', 'b1', '--kind', 'ad', '--id', '1', '--file', file({ brief: { angle: 'Only the angle.' } })]);
+    assertRejected(partial, ['brief.hook']);
+  } finally {
+    server.reply(echo);
+  }
 });
 
 test('ads:update patches the entity route and refuses fields fixed at creation', async () => {
@@ -296,7 +357,7 @@ test('passes ad account and Meta rejections through unchanged', async () => {
 
 test('help lists every ads command', async () => {
   const help = await call(['help']);
-  for (const command of ['ads:account', 'ads:insights', 'ads:list', 'ads:create', 'ads:update', 'ads:media:add', 'ads:media', 'ads:targeting']) {
+  for (const command of ['ads:account', 'ads:records', 'ads:insights', 'ads:list', 'ads:create', 'ads:update', 'ads:media:add', 'ads:media', 'ads:targeting']) {
     assert.ok(command in help.json.data.commands, command);
   }
   assert.match(help.json.data.commands['ads:insights'], /--daily/);

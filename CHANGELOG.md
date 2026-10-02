@@ -3,6 +3,25 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.9.0 (2026-10-02)
+
+- Every ad carries a `brief`, what the ad tests: `ads:create --kind ad`
+  requires it and checks it locally (`angle` and `hook` required, ≤ 300
+  chars each; optional `personaKey` ≤ 80, `offer` ≤ 200, `coreMessage`
+  ≤ 500, `ideaId`; no other keys). Bichon stores it with a snapshot of the
+  creative's copy and never sends it to Meta.
+- `ads:update --kind ad` takes an optional `brief` that replaces the stored
+  one; a file holding only `brief` is valid and changes nothing on Meta. An
+  ad built in Ads Manager gets a record once it is briefed this way.
+  `brief` on a campaign, ad set or creative is rejected.
+- `ads:records --brand <id> [--campaign <id>] [--adset <id>] [--limit
+  1..200]` lists each ad's brief, source idea, creative and copy, newest
+  first (`GET /agent/v1/brands/:id/ads/records`).
+- SKILL.md explains the brief, how to vary one thing per ad set, and how to
+  read `ads:records` with `ads:insights --level ad`.
+- Needs the Bichon server release with ad records; older servers reject the
+  `brief` field and have no `ads:records` route.
+
 ## 0.8.0 (2026-10-02)
 
 - Ads commands, all under `--brand <id>` and backed by

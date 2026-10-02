@@ -115,11 +115,16 @@ $S ads:list --brand <brandId> --kind adsets --campaign <campaignId>
 $S ads:targeting --brand <brandId> --type interest --q "coffee"
 $S ads:media:add --brand <brandId> --file work/ad1.jpg   # → { hash } (or { videoId } for MP4/MOV)
 $S ads:media --brand <brandId> --kind video
-$S ads:create --brand <brandId> --kind campaign --file work/campaign.json   # then adset, creative, ad
+$S ads:create --brand <brandId> --kind campaign --file work/campaign.json   # then adset, creative, ad (with a brief)
 $S ads:update --brand <brandId> --kind adset --id <adsetId> --file work/patch.json
+$S ads:records --brand <brandId> --campaign <campaignId>   # what each ad tests: brief + copy
 ```
 
 Everything is created `PAUSED`; `ads:update` can pause but never activate.
+Every ad carries a `brief` (the angle and hook it tests, and optionally the
+persona, offer, core message and source idea); Bichon stores it with the ad's
+copy, and `ads:records` joined with `ads:insights --level ad` shows which
+angles, hooks and personas get results.
 
 Every command prints `{"ok":true,"data":...}` or, with exit code 1,
 `{"ok":false,"error":{"code","message","details?"}}`. `schema` prints the JSON

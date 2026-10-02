@@ -615,12 +615,20 @@ default:
 - `ads:list --brand <id> --kind campaigns|adsets|ads|creatives` gives the
   entities themselves (status, `effective_status`, budgets, targeting,
   review feedback), in Meta's own field names.
+- `ads:records --brand <id> [--campaign <id>] [--adset <id>]` gives what each
+  ad tests, newest first: `{ items: [{ adId, adsetId, campaignId, name,
+  brief: { angle, hook, personaKey?, offer?, coreMessage? }, ideaId,
+  creativeId, copy: { primaryText?, headline?, description?, callToAction?,
+  link? }, mediaKind, imageHash, videoId, storyId, createdAt }], truncated }`.
+  Join it with `ads:insights --level ad` on `adId` = row `id` to report which
+  angles, hooks and personas are getting results. An ad built in Ads Manager
+  has no record until it is given a brief (Rules).
 
 When reporting to the manager, state the date range and the currency. Compare
 like with like: the same range, the same objective, the same result type.
-Do not call a winner on a handful of impressions or results; say when the
-data is too thin to tell (a few hundred impressions, single-digit results)
-and how long it would need to run. Ad numbers are for ads work only: they
+Do not call a winner on a handful of impressions or results, per ad or per
+angle, hook or persona; say when the data is too thin to tell (a few hundred
+impressions, single-digit results) and how long it would need to run. Ad numbers are for ads work only: they
 never go into post briefs or captions.
 
 **Building a campaign.** In this order:
@@ -658,13 +666,36 @@ never go into post briefs or captions.
    `video_id` (plus an `image_hash` or `image_url` thumbnail). To promote an
    existing post instead, send `object_story_id` (`<pageId>_<postId>`). Set
    `instagram_user_id` (the Page's `instagram.id`) to run on Instagram too.
-6. **Ad.** `ads:create --kind ad` with the ad set's id and
-   `"creative": { "creative_id": "<creative id>" }`.
+6. **Ad.** `ads:create --kind ad` with the ad set's id,
+   `"creative": { "creative_id": "<creative id>" }` and a `brief`.
+
+**The brief.** Every ad you create carries a `brief`: what the ad tests,
+written before the copy. Bichon keeps it (it never goes to Meta) with a
+snapshot of the creative's copy, so results can later be read per angle,
+hook and persona. Be honest and specific, and never reuse one vague angle
+across different ads.
+
+- `angle` (required, ≤ 300 chars): the one claim or reason to care this ad
+  argues, in one sentence, specific enough that another ad could argue a
+  different one.
+- `hook` (required, ≤ 300): how it opens, the first line or frame that stops
+  the scroll.
+- `personaKey` (≤ 80): which of the brand's personas it speaks to, a key
+  from `brand:context` → `brand.personas[].key`.
+- `offer` (≤ 200) when there is one; `coreMessage` (≤ 500), the takeaway.
+- `ideaId` when the ad is made from one of the brand's organic posts (its
+  idea id from `ideas`).
+
+To learn something, vary one thing between the ads of an ad set (the angle,
+or the hook, or the persona) and name which in each ad's `name`. An ad with a
+different angle is a new ad, not an edit. When you only reword the brief to
+describe the same ad better, send `ads:update --kind ad` with just
+`{"brief": {...}}` (a full brief; it replaces the stored one).
 
 `--dry-run` checks a params file locally without sending it. Params are Meta
 Marketing API fields (snake_case); the helper rejects unknown fields, missing
-required fields, a `status` other than `PAUSED` and money that is not a
-positive integer. The ids below are illustrative; use the ones the previous
+required fields, a `status` other than `PAUSED`, money that is not a
+positive integer, and an ad without a valid `brief`. The ids below are illustrative; use the ones the previous
 step returned.
 
 Campaign (`ads:create --kind campaign`; required `name`, `objective`):
@@ -729,14 +760,22 @@ Creative (`--kind creative`; required `name` and one of `object_story_spec`,
 }
 ```
 
-Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`):
+Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`,
+`brief.angle`, `brief.hook`):
 
 ```json
 {
-  "name": "Sour cup fix · image",
+  "name": "Sour cup fix · image · angle: grind not beans",
   "adset_id": "120210000000000002",
   "creative": { "creative_id": "120210000000000003" },
-  "status": "PAUSED"
+  "status": "PAUSED",
+  "brief": {
+    "angle": "A sour cup is a grind problem, not a bean problem, so the fix costs nothing.",
+    "hook": "Sour cup? It is almost never the beans.",
+    "personaKey": "p1",
+    "offer": "Free grind guide with the autumn single origin",
+    "coreMessage": "Grind one step finer before you blame the beans."
+  }
 }
 ```
 
@@ -749,7 +788,9 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`):
   activate it.
 - `ads:update --brand <id> --kind campaign|adset|ad --id <metaId> --file
   patch.json` sends only the fields to change: rename, re-target, change the
-  budget or schedule, swap an ad's creative, or pause (`{"status":"PAUSED"}`).
+  budget or schedule, swap an ad's creative, replace an ad's `brief`, or
+  pause (`{"status":"PAUSED"}`). A file holding only `brief` changes nothing
+  on Meta. Only ads take a `brief`.
   `objective`, `buying_type`, `campaign_id` and `adset_id` are fixed at
   creation. Never raise the budget of something already delivering without
   the manager's explicit say-so.
@@ -758,7 +799,10 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`):
   unit: amount × `budgetUnitsPerCurrency`. USD 20.00 is `2000`; TWD and JPY
   have no smaller unit, so TWD 600 is `600`.
 - Creatives cannot be edited. Create a new one, then point the ad at it:
-  `ads:update --kind ad` with `{"creative":{"creative_id":"<new id>"}}`.
+  `ads:update --kind ad` with `{"creative":{"creative_id":"<new id>"}}`; the
+  stored copy follows the new creative.
+- An ad built in Ads Manager has no record until you give it a brief with
+  `ads:update --kind ad --id <adId>` and `{"brief": {...}}`.
 - Ads that target Taiwan must name the advertiser on the ad set:
   `regional_regulated_categories: ["TAIWAN_UNIVERSAL"]` and
   `regional_regulation_identities` with `taiwan_universal_beneficiary` and
@@ -772,11 +816,12 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`):
 
 | Command | What it does |
 |---|---|
+| `ads:records --brand <id> [--campaign <id>] [--adset <id>] [--limit 1..200]` | What each ad tests (default 50, newest first): its `brief`, `ideaId`, `creativeId`, `copy` and media; join with `ads:insights --level ad` on `adId` |
 | `ads:account --brand <id>` | The connected ad account (`currency`, `timezoneName`, `budgetUnitsPerCurrency`), its Pages with linked Instagram accounts, pixels and `warnings` |
 | `ads:insights --brand <id> [--level account\|campaign\|adset\|ad] [--range today\|yesterday\|last_7d\|last_14d\|last_28d\|last_30d\|last_90d\|this_month\|last_month] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown age\|gender\|country\|publisher_platform\|platform_position\|device_platform] [--campaign <id>] [--adset <id>] [--ad <id>] [--limit 1..500]` | Performance rows (default: campaign level, `last_28d`, 100 rows): `{ account, level, range, rows, truncated }` |
 | `ads:list --brand <id> --kind campaigns\|adsets\|ads\|creatives [--campaign <id>] [--adset <id>] [--limit 1..200]` | The account's entities in Meta's field names (default 50): `{ items, truncated }`; `--campaign` filters ad sets and ads, `--adset` filters ads |
-| `ads:create --brand <id> --kind campaign\|adset\|creative\|ad --file params.json [--dry-run]` | Validate the params locally, then create the entity paused: `{ id, kind, status: "PAUSED" }` (a creative has no status) |
-| `ads:update --brand <id> --kind campaign\|adset\|ad --id <metaId> --file patch.json [--dry-run]` | Change some fields of a campaign, ad set or ad, or pause it: `{ id, kind, updated }` |
+| `ads:create --brand <id> --kind campaign\|adset\|creative\|ad --file params.json [--dry-run]` | Validate the params locally, then create the entity paused: `{ id, kind, status: "PAUSED" }` (a creative has no status); an ad needs a `brief` |
+| `ads:update --brand <id> --kind campaign\|adset\|ad --id <metaId> --file patch.json [--dry-run]` | Change some fields of a campaign, ad set or ad, or pause it, or replace an ad's `brief`: `{ id, kind, updated }` |
 | `ads:media:add --brand <id> --file <image or video> [--name <name>]` | Upload a JPEG or PNG (≤ 8 MB) or an MP4 or MOV (≤ 200 MB) to the ad account: `{ kind: "image", name, hash, url }` or `{ kind: "video", name, videoId }`, plus `contentType` and `bytes` |
 | `ads:media --brand <id> [--kind image\|video] [--limit 1..200]` | The account's ad images (default) or videos: `{ items, truncated }` |
 | `ads:targeting --brand <id> --type interest\|geo\|locale --q <text>` | Meta's targeting search, for the ids in `targeting`: `{ items }` |
@@ -1157,6 +1202,7 @@ update needs at least one field. Every persona field except `key` is required
 | 409 | `draft_status` | The draft is approved and cannot be rewritten (drop it from the bundle; it needs nothing more), submit was refused (message says why), or images were changed while the draft is `submitted` |
 | 409 | `conflict` | The campaign is archived, or the draft's images are locked because a publication is scheduled or out |
 | 409 | `ad_account_unavailable` | The brand has no usable Meta ad account (not connected, an account still to pick, or the login expired); stop and tell the manager what the message says |
+| 400 | `validation_failed` | On an ad: `brief` missing, `brief.personaKey` not one of the brand's persona keys, or `brief.ideaId` not one of the brand's ideas; fix the brief and resend |
 | 422 | `meta_rejected` | Meta refused an ads request; `details` has `code`, `subcode`, `userTitle`, `userMessage` and `traceId`. Fix the params from `userMessage` or relay it; do not retry blindly (502 when Meta itself failed: retry later) |
 | — | `upload_failed` | Storage refused the upload (`draft:media:add`, `ads:media:add`); retry, then report the HTTP status |
 | 413 | `payload_too_large` | Body over 1 MB; send fewer posts or drafts per call |

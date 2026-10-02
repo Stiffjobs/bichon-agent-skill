@@ -856,8 +856,23 @@ function adFieldIssue(spec, value) {
   }
 }
 
-function checkAdParams(kind, mode, params, issues) {
+// What an ad tests. Bichon keeps it with the ad's copy and never sends it to Meta.
+const AD_BRIEF_SCHEMA = strictObject(
+  { angle: str(300), hook: str(300), personaKey: str(80), offer: str(200), coreMessage: str(500), ideaId: str(64) },
+  ['angle', 'hook'],
+);
+
+function checkAdParams(kind, mode, body, issues) {
   const { fields, required, createOnly, oneOf } = AD_PARAMS[kind];
+  const { brief, ...params } = body;
+  const briefed = brief !== undefined;
+  if (briefed && kind !== 'ad') {
+    issues.push({ path: 'brief', message: 'goes on ads only (--kind ad)' });
+  } else if (briefed) {
+    validate(AD_BRIEF_SCHEMA, brief, 'brief', issues);
+  } else if (kind === 'ad' && mode === 'create') {
+    issues.push({ path: 'brief', message: 'is required: say what this ad tests ({ angle, hook, personaKey?, offer?, coreMessage?, ideaId? })' });
+  }
   for (const [key, value] of Object.entries(params)) {
     if (key === 'status' && kind !== 'creative') {
       if (value !== 'PAUSED') issues.push({ path: key, message: 'may only be PAUSED; a manager activates ads in the Bichon dashboard' });
@@ -877,7 +892,7 @@ function checkAdParams(kind, mode, params, issues) {
     issues.push({ path: 'creative.creative_id', message: 'must be the id of a creative in this ad account' });
   }
   if (mode === 'update') {
-    if (Object.keys(params).length === 0) issues.push({ path: '(root)', message: 'has no field to update' });
+    if (Object.keys(params).length === 0 && !briefed) issues.push({ path: '(root)', message: 'has no field to update' });
     return;
   }
   for (const key of required) {
@@ -1233,6 +1248,14 @@ const COMMANDS = {
   'research:sources': get(brandRoute('/research/sources')),
   'analysis:request': post((parsed) => `${brandRoute()(parsed)}${idRoute('accounts', 'profile', '/analysis')(parsed)}`),
   'ads:account': get(brandRoute('/ads/account')),
+  'ads:records': get(
+    brandRoute('/ads/records'),
+    (parsed) => ({
+      campaignId: metaIdOption(parsed, 'campaign'),
+      adsetId: metaIdOption(parsed, 'adset'),
+      limit: integerOption(parsed, 'limit', 1, 200),
+    }),
+  ),
   'ads:insights': get(brandRoute('/ads/insights'), adsInsightsQuery),
   'ads:list': get((parsed) => brandRoute(`/ads/${requiredEnumOption(parsed, 'kind', AD_LIST_KINDS)}`)(parsed), adsListQuery),
   'ads:create': withConfig((parsed, config) => {
@@ -1290,6 +1313,7 @@ const COMMANDS = {
       'research:sources': '--brand <brandId>',
       'analysis:request': '--brand <brandId> --profile <socialProfileId>',
       'ads:account': '--brand <brandId>',
+      'ads:records': '--brand <brandId> [--campaign <id>] [--adset <id>] [--limit 1..200]',
       'ads:insights': `--brand <brandId> [--level ${ADS_LEVELS.join('|')}] [--range ${ADS_RANGES.join('|')}] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown ${ADS_BREAKDOWNS.join('|')}] [--campaign <id>] [--adset <id>] [--ad <id>] [--limit 1..500]`,
       'ads:list': `--brand <brandId> --kind ${AD_LIST_KINDS.join('|')} [--campaign <id>] [--adset <id>] [--limit 1..200]`,
       'ads:create': `--brand <brandId> --kind ${AD_KINDS.join('|')} --file <params.json> [--dry-run]`,
