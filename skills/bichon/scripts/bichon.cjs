@@ -412,6 +412,10 @@ const DRAFT_SCHEMA = strictObject(
   {
     socialProfileId: str(200),
     caption: str(5000),
+    followUps: {
+      ...list(str(1000), 10),
+      description: 'Threads accounts only: replies published under the post, in order; each at most 500 characters (counted server-side)',
+    },
     title: str(200, 0),
     postType: { enum: POST_TYPES },
     variantNote: str(1000, 0),

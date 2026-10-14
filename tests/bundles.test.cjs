@@ -179,6 +179,23 @@ test('a draft responseNote is optional and at most 1000 characters', async () =>
   assertRejected(await submitDrafts(bundle), ['drafts[0].responseNote', 'drafts[1].responseNote']);
 });
 
+test('followUps are optional: at most ten, each one to a thousand characters', async () => {
+  const bundle = clone(skillExamples().drafts);
+  bundle.drafts[0].followUps = ['First answer.', 'f'.repeat(1000)];
+  const fits = await submitDrafts(bundle);
+  assert.equal(fits.code, 0, fits.stdout);
+  assert.deepEqual(fits.requests[0].body.drafts[0].followUps, ['First answer.', 'f'.repeat(1000)]);
+  bundle.drafts[0].followUps = [];
+  const cleared = await submitDrafts(bundle);
+  assert.equal(cleared.code, 0, cleared.stdout);
+  assert.deepEqual(cleared.requests[0].body.drafts[0].followUps, []);
+  bundle.drafts[0].followUps = ['', 'f'.repeat(1001), ...Array.from({ length: 9 }, () => 'ok')];
+  assertRejected(await submitDrafts(bundle), ['drafts[0].followUps', 'drafts[0].followUps[0]', 'drafts[0].followUps[1]']);
+  const posts = clone(skillExamples().posts);
+  posts.posts[0].drafts[0].followUps = 'not a list';
+  assertRejected(await submitPosts(posts), ['posts[0].drafts[0].followUps']);
+});
+
 test('rejects unreadable or malformed bundle files as invalid requests', async () => {
   const broken = path.join(dir, 'broken.json');
   fs.writeFileSync(broken, '{ "format": ');

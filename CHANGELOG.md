@@ -3,6 +3,19 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.11.0 (2026-10-14)
+
+- Threads follow-up replies: a Threads entry in `posts:submit` or
+  `drafts:submit` may carry `followUps`, up to 10 texts of at most 500
+  characters, published right after the post as replies to it, in order.
+  The CLI checks the list shape locally (at most 10, each 1 to 1000
+  characters); the server counts the 500 characters and refuses the field
+  on any non-Threads account (400). On a rewrite, omitting `followUps`
+  keeps the stored ones and `[]` removes them.
+- `draft:get` and `reviews` return `followUps`.
+- SKILL.md gains a Follow-ups paragraph in the Drafts section: use them for
+  "question first, answers as replies" posts.
+
 ## 0.10.0 (2026-10-02)
 
 - `research:pending` batches come nearest the brief first. The result (and

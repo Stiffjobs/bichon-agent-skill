@@ -16,7 +16,7 @@ description: >
   the manager, and builds Meta ad campaigns, ad sets, creatives and ads for
   the brand, uploading the ad images and videos, all created paused.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-10-02
+last-updated: 2026-10-14
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -78,11 +78,11 @@ code 1 on any failure. The API key is never printed.
 | `posts:submit --campaign <id> --file posts.json [--dry-run]` | Validate a PostsBundle locally, then store the run, every accepted post's brief and its drafts in one call: `{ runId, counts, accepted: [{ index, ideaId, title, topicKey, drafts: [{ draftId, socialProfileId, status, voiceCheck }], warnings: [{ code, reason, match? }] }], rejected: [{ index, title, code, reason }] }` |
 | `run:get --id <runId>` | One submission run |
 | `drafts:submit --idea <id> --file drafts.json [--dry-run]` | Validate a DraftsBundle locally, then rewrite an existing post's drafts, or add drafts for target accounts it has none for |
-| `draft:get --id <draftId>` | One draft with caption, voice check, review state, `revision` and `requests` (review comments on the current revision) |
+| `draft:get --id <draftId>` | One draft with caption, `followUps`, voice check, review state, `revision` and `requests` (review comments on the current revision) |
 | `draft:submit --id <draftId>` | Send a draft to manager review; each submit creates the next revision |
 | `draft:media:add --id <draftId> --file <image>` | Upload a JPEG, PNG or WebP (≤ 8 MB) and attach it as the draft's next image: `{ mediaId, contentType, bytes }` |
 | `draft:media:remove --id <draftId> --media <mediaId>` | Remove one image from the draft; the rest keep their order |
-| `reviews --campaign <id> [--status changes_requested\|rejected\|submitted\|approved\|all] [--history]` | The campaign's drafts under review (default `changes_requested`, at most 50): `{ drafts: [{ draftId, ideaId, ideaTitle, socialProfileId, username, status, revision, caption, reviewNote, requests }], truncated }`; `requests` are the comments on the current revision (`--history`: every revision), each `{ commentId, author: manager\|client, body, decision: approve\|request_changes\|reject\|null, revision, createdAt, images: [{ url, width, height, expiresAt }] }` |
+| `reviews --campaign <id> [--status changes_requested\|rejected\|submitted\|approved\|all] [--history]` | The campaign's drafts under review (default `changes_requested`, at most 50): `{ drafts: [{ draftId, ideaId, ideaTitle, socialProfileId, username, status, revision, caption, followUps, reviewNote, requests }], truncated }`; `requests` are the comments on the current revision (`--history`: every revision), each `{ commentId, author: manager\|client, body, decision: approve\|request_changes\|reject\|null, revision, createdAt, images: [{ url, width, height, expiresAt }] }` |
 | `brand:context --brand <id>` | Brand voice, pillars, audience and personas, every connected account (channel analysis, voice, manager notes), competitors, assets, recent campaigns, evidence sources |
 | `personas:draft --brand <id> [--profile <socialProfileId>]` | Up to five personas drafted from an account's past posts; nothing is saved |
 | `personas:set --brand <id> --file personas.json [--dry-run]` | Replace the brand's persona set |
@@ -529,6 +529,15 @@ write the still-image version even when the account favours reels. The
 caption is only the publishable text: no "Card 1:" scripts, image prompts or
 layout notes. Put production hints in `mediaNotes` and what makes this
 account's caption different (tone, length, structure, CTA) in `variantNote`.
+
+**Follow-ups (Threads only).** A Threads entry may add `followUps`: up to 10
+texts, each at most 500 characters, published right after the post as
+replies to it (each one replies to the post itself, in order). Use them for
+"question first, answers as replies" posts: the `caption` asks the question
+or makes the hook, the follow-ups carry the answer, one point per reply. Any
+other account's entry with `followUps` fails the whole call (400). On a
+rewrite (`drafts:submit`), leaving `followUps` out keeps the stored ones and
+`[]` removes them. `draft:get` and `reviews` return them as `followUps`.
 
 ## Caption rules
 
