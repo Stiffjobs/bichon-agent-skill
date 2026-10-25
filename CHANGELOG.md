@@ -3,6 +3,22 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.12.0 (2026-10-21)
+
+- `publications --brand <id> (--month YYYY-MM | --since --until)` lists what
+  Bichon scheduled or published in a window of up to 62 days, across
+  campaigns: each row's `status`, `method`, `permalink`, `lastError`,
+  `attempts`, and for published rows `reads.at24h` / `reads.at7d` (`verified`,
+  `unverified`, `not_due` or `missing`, with views, likes, comments, reposts,
+  quotes, shares). Days are read in the machine's time zone; `--out` writes
+  the rows and prints counts.
+- SKILL.md gains a Publications section: permalink is the only join key to
+  platform posts, compare only `verified` reads of the same checkpoint, and
+  the reads are for reports to the manager, never captions.
+- Every `YYYY-MM-DD` option (`publications`, `ads:insights`) now rejects
+  dates that do not exist, such as `2026-02-30`, instead of rolling them
+  over to the next month.
+
 ## 0.11.0 (2026-10-14)
 
 - Threads follow-up replies: a Threads entry in `posts:submit` or

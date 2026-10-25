@@ -79,6 +79,10 @@ the last 28 days?") or to build one ("set up a traffic campaign for the autumn
 launch, TWD 500 a day"). It agrees the plan with you first, then creates
 everything paused; you activate it in Analytics → Ads.
 
+Publications: ask the agent what went out ("which October posts published,
+failed or are still scheduled?"). It runs `publications --month 2026-10` and
+reports each post's status, permalink and 24-hour and 7-day reads.
+
 ## Example Run
 
 Inside an agent session, ask for it in plain words ("write posts for the
@@ -103,6 +107,7 @@ $S draft:media:add --id <draftId> --file work/card1.png   # image posts: once pe
 $S drafts:submit --idea <ideaId> --file work/drafts.json
 $S draft:submit --id <draftId>   # optional: send to manager review
 $S reviews --campaign <campaignId>   # after the manager's review: requests to answer
+$S publications --brand <brandId> --month 2026-10 --out work/october.json   # status, permalink, 24h/7d reads
 ```
 
 Ads commands (all take `--brand <brandId>`; params files use Meta Marketing

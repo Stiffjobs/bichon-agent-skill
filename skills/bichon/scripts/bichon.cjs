@@ -35,6 +35,7 @@ const SENSITIVE_FIELD_NAMES = new Set([
 const CAMPAIGN_STATUSES = ['active', 'archived'];
 const IDEA_STATUSES = ['proposed', 'approved', 'killed', 'done'];
 const REVIEW_STATUSES = ['changes_requested', 'rejected', 'submitted', 'approved', 'all'];
+const PUBLICATION_STATUSES = ['pending', 'scheduled', 'publishing', 'published', 'failed', 'cancelled'];
 const WHY_NOW_CATEGORIES = ['timely_news', 'active_discussion', 'competitor_performance', 'evergreen'];
 const MODES = ['evidence', 'brief', 'mixed'];
 const POST_TYPES = ['image', 'video', 'text'];
@@ -57,6 +58,7 @@ const AD_MEDIA_KINDS = ['image', 'video'];
 const TARGETING_TYPES = ['interest', 'geo', 'locale'];
 const META_ID = /^\d{1,32}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const HTTP_CODES = {
   400: 'invalid_request',
   401: 'unauthorized',
@@ -143,7 +145,8 @@ function metaIdOption(parsed, name, required = false) {
 
 function dateOption(parsed, name) {
   const value = optionalOption(parsed, name);
-  if (value !== undefined && (!DATE.test(value) || Number.isNaN(Date.parse(value)))) {
+  // Date.parse rolls 2026-02-30 over to March 2; a real date round-trips.
+  if (value !== undefined && (!DATE.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value)) {
     throw new CliError('invalid_request', `--${name} must be a YYYY-MM-DD date.`);
   }
   return value;
@@ -1136,6 +1139,50 @@ function adsInsightsQuery(parsed) {
   };
 }
 
+// Days are read in this machine's time zone: --until is inclusive, so the
+// window ends at the next local midnight.
+function localMidnight(date, addDays = 0) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(year, month - 1, day + addDays).getTime();
+}
+
+function publicationsQuery(parsed) {
+  const month = optionalOption(parsed, 'month');
+  const since = dateOption(parsed, 'since');
+  const until = dateOption(parsed, 'until');
+  if (month !== undefined && !MONTH.test(month)) throw new CliError('invalid_request', '--month must be YYYY-MM.');
+  if (month && (since || until)) throw new CliError('invalid_request', 'Give either --month or --since and --until, not both.');
+  if (!month && !(since && until)) throw new CliError('invalid_request', 'Give --month YYYY-MM, or --since and --until.');
+  if (since && since > until) throw new CliError('invalid_request', '--since must not be after --until.');
+  const [year, monthNumber] = (month || '').split('-').map(Number);
+  return {
+    from: month ? new Date(year, monthNumber - 1, 1).getTime() : localMidnight(since),
+    to: month ? new Date(year, monthNumber, 1).getTime() : localMidnight(until, 1),
+    campaignId: optionalOption(parsed, 'campaign'),
+    status: enumOption(parsed, 'status', PUBLICATION_STATUSES),
+  };
+}
+
+function summarizePublications(data) {
+  const rows = Array.isArray(data.publications) ? data.publications : [];
+  const statuses = {};
+  const reads = { at24h: {}, at7d: {} };
+  for (const row of rows) {
+    statuses[row.status] = (statuses[row.status] || 0) + 1;
+    for (const checkpoint of ['at24h', 'at7d']) {
+      const state = row.reads && row.reads[checkpoint] ? row.reads[checkpoint].state : null;
+      if (state) reads[checkpoint][state] = (reads[checkpoint][state] || 0) + 1;
+    }
+  }
+  return {
+    publications: rows.length,
+    statuses,
+    withPermalink: rows.filter((row) => row.permalink).length,
+    reads,
+    truncated: Boolean(data.truncated),
+  };
+}
+
 function adsListQuery(parsed) {
   const kind = requiredEnumOption(parsed, 'kind', AD_LIST_KINDS);
   const campaignId = metaIdOption(parsed, 'campaign');
@@ -1223,6 +1270,7 @@ const COMMANDS = {
       history: flagOption(parsed, 'history') ? 1 : undefined,
     }),
   ),
+  publications: getToFile(brandRoute('/publications'), publicationsQuery, summarizePublications),
   'brand:context': get(brandRoute('/context')),
   'personas:draft': get(
     brandRoute('/personas/draft'),
@@ -1303,6 +1351,7 @@ const COMMANDS = {
       'draft:media:add': '--id <draftId> --file <image.jpg|png|webp>',
       'draft:media:remove': '--id <draftId> --media <mediaId>',
       reviews: `--campaign <campaignId> [--status ${REVIEW_STATUSES.join('|')}] [--history]`,
+      publications: `--brand <brandId> (--month YYYY-MM | --since YYYY-MM-DD --until YYYY-MM-DD) [--campaign <campaignId>] [--status ${PUBLICATION_STATUSES.join('|')}] [--out <file>]`,
       'brand:context': '--brand <brandId>',
       'personas:draft': '--brand <brandId> [--profile <socialProfileId>]',
       'personas:set': '--brand <brandId> --file <personas.json> [--dry-run]',
