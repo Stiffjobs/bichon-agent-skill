@@ -99,8 +99,10 @@ $S research:submit --campaign <campaignId> --file work/analyses-1.json
 $S evidence --campaign <campaignId> --q "sour pour-over fixes" --limit 20
 $S competitors --brand <brandId>
 # the agent writes work/posts.json (PostsBundle, see SKILL.md): up to five
-# posts, each with its brief, a reviewNote and one caption per target account
+# posts, each with its brief, a reviewNote, an optional plannedDate and one
+# caption per target account
 $S posts:submit --campaign <campaignId> --file work/posts.json
+$S post:date --idea <ideaId> --date 2026-11-07   # set or move a post's planned day
 # → { runId, accepted: [{ ideaId, drafts: [{ draftId, voiceCheck }] }], rejected: [{ code, reason }] }
 $S draft:media:add --id <draftId> --file work/card1.png   # image posts: once per image
 # the agent rewrites any caption with failed voice checks in work/drafts.json

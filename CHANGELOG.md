@@ -3,6 +3,16 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.13.0 (2026-10-26)
+
+- A post in `posts:submit` may carry `plannedDate` (`YYYY-MM-DD`), the day
+  of the content calendar it belongs to. The campaign review lists posts by
+  that day, top to bottom, however they were submitted; nothing is
+  scheduled from it. The CLI rejects dates that do not exist.
+- `post:date --idea <ideaId> (--date YYYY-MM-DD | --clear)` sets or clears
+  the planned date of a post already stored. An imported plan's post keeps
+  its plan date (409).
+
 ## 0.12.0 (2026-10-21)
 
 - `publications --brand <id> (--month YYYY-MM | --since --until)` lists what

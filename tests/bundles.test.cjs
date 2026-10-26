@@ -234,3 +234,13 @@ test('schema prints draft 2020-12 schemas for both bundles', async () => {
   assert.equal(retired.code, 1);
   assert.equal(retired.json.error.code, 'invalid_request');
 });
+
+test('a post plannedDate is optional and must be a real YYYY-MM-DD date', async () => {
+  const bundle = clone(skillExamples().posts);
+  assert.equal(bundle.posts[0].plannedDate, '2026-11-07');
+  delete bundle.posts[0].plannedDate;
+  const without = await submitPosts(bundle, ['--dry-run']);
+  assert.equal(without.code, 0, without.stdout);
+  for (const value of ['11/07', '2026-11-31', ''])
+    assertRejected(await submitPosts({ ...bundle, posts: [{ ...bundle.posts[0], plannedDate: value }] }), ['posts[0].plannedDate']);
+});

@@ -265,3 +265,16 @@ test('--pretty indents output', async () => {
   const result = await call(['brands', '--pretty']);
   assert.equal(result.stdout, `${JSON.stringify({ ok: true, data: { echo: true } }, null, 2)}\n`);
 });
+
+test('post:date sets or clears a stored post planned date', async () => {
+  const set = await call(['post:date', '--idea', 'i1', '--date', '2026-11-07']);
+  assert.equal(set.code, 0, set.stdout);
+  assert.deepEqual([set.requests[0].method, set.requests[0].path, set.requests[0].body], ['PATCH', '/agent/v1/ideas/i1', { plannedDate: '2026-11-07' }]);
+  const cleared = await call(['post:date', '--idea', 'i1', '--clear']);
+  assert.deepEqual(cleared.requests[0].body, { plannedDate: null });
+  for (const args of [['--date', '2026-11-31'], [], ['--date', '2026-11-07', '--clear']]) {
+    const refused = await call(['post:date', '--idea', 'i1', ...args]);
+    assert.equal(refused.code, 1, args.join(' '));
+    assert.equal(refused.requests.length, 0, args.join(' '));
+  }
+});

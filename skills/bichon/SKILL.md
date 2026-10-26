@@ -18,7 +18,7 @@ description: >
   the manager, and builds Meta ad campaigns, ad sets, creatives and ads for
   the brand, uploading the ad images and videos, all created paused.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-10-21
+last-updated: 2026-10-26
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -79,6 +79,7 @@ code 1 on any failure. The API key is never printed.
 | `ideas --campaign <id> [--status proposed\|approved\|killed\|done]` | The campaign's posts (idea briefs) with their drafts (default: all but killed) |
 | `posts:submit --campaign <id> --file posts.json [--dry-run]` | Validate a PostsBundle locally, then store the run, every accepted post's brief and its drafts in one call: `{ runId, counts, accepted: [{ index, ideaId, title, topicKey, drafts: [{ draftId, socialProfileId, status, voiceCheck }], warnings: [{ code, reason, match? }] }], rejected: [{ index, title, code, reason }] }` |
 | `run:get --id <runId>` | One submission run |
+| `post:date --idea <ideaId> (--date YYYY-MM-DD \| --clear)` | Set or clear the day a stored post is planned for: `{ ideaId, plannedDate }`. Refused (409) on an imported plan's post, which keeps the plan's date |
 | `drafts:submit --idea <id> --file drafts.json [--dry-run]` | Validate a DraftsBundle locally, then rewrite an existing post's drafts, or add drafts for target accounts it has none for |
 | `draft:get --id <draftId>` | One draft with caption, `followUps`, voice check, review state, `revision` and `requests` (review comments on the current revision) |
 | `draft:submit --id <draftId>` | Send a draft to manager review; each submit creates the next revision |
@@ -212,8 +213,11 @@ file with `--impact-key <impactKey>`.
    plan → one caption per target account (`campaign.targetProfileIds`,
    detailed in `context.accounts`), in the content language, following that
    account's planned format, model post and voice. Add a `reviewNote` saying
-   what the manager should check. At most 5 posts per submission; zero is a
-   valid answer.
+   what the manager should check, and a `plannedDate` (YYYY-MM-DD) when the
+   post belongs to a day of a content calendar: the review lists posts by
+   that day, top to bottom, whatever order they were submitted in. It only
+   orders the review; nothing is scheduled from it. At most 5 posts per
+   submission; zero is a valid answer.
 5. **Submit.** Write the bundle to a file, `posts:submit --campaign <id>
    --file posts.json`. One call stores the run, each accepted post's brief
    and its drafts, and voice-checks the drafts. Give each bundle a unique
@@ -966,6 +970,7 @@ never both:
         { "socialProfileId": "<instagram socialProfileId>", "formatKey": "tip_list", "layoutModelPostId": "<externalId of a tip_list example>" }
       ],
       "reviewNote": "Check the 90–96 °C range against the brewing card we ship with our beans.",
+      "plannedDate": "2026-11-07",
       "drafts": [
         {
           "socialProfileId": "<instagram socialProfileId>",
@@ -993,8 +998,9 @@ record, written by the same server code and reviewed in the same view. The
 fields map one to one: `personaKey` ↔ `persona`, `pov` ↔ `pov`,
 `coreMessage` ↔ `coreMessage`, `formatPlan[].formatKey` +
 `layoutModelPostId` ↔ `format` + `layoutModel` (the model post's permalink),
-`drafts[].caption` ↔ `draft`, `reviewNote` ↔ `reviewNote`. A plan's
-`sourceLinks`/`accountEvidence` are what your cited `evidence` ids are.
+`drafts[].caption` ↔ `draft`, `reviewNote` ↔ `reviewNote`, `plannedDate` ↔
+`proposedDate`. A plan's `sourceLinks`/`accountEvidence` are what your
+cited `evidence` ids are.
 
 DraftsBundle (`drafts:submit --idea <ideaId>`): rewrites of a stored post's
 drafts (one entry per account you rewrite; leave untouched siblings out), or
@@ -1191,6 +1197,7 @@ The helper checks these before sending and names the offending path.
 | `claims` per post | ≤ 8; `text` ≤ 2000 |
 | `formatPlan` per post | ≤ 10, one per account |
 | `reviewNote` | 300 chars, optional |
+| `plannedDate` | a real `YYYY-MM-DD` date, optional |
 | `drafts` per post | 1–10, one per account |
 | `note` / `noPostsReason` | 300 chars each |
 | `agent.name` / `model` / `promptVersion` | 80 chars each |
@@ -1204,7 +1211,7 @@ The helper checks these before sending and names the offending path.
 Required in a PostsBundle: `format`, `agent.name`, `mode`,
 `briefVersion`, `sourcePolicyVersion`, `posts`, and every post field shown in the example
 except `evidence[].versionId`, `evidence[].excerpt`, `claims[].evidence`,
-`formatPlan[].openerSource` and `reviewNote`; each draft needs
+`formatPlan[].openerSource`, `reviewNote` and `plannedDate`; each draft needs
 `socialProfileId` and `caption`. `whyNowCategory` is `timely_news`,
 `active_discussion`, `competitor_performance` or `evergreen`. `primaryEvidence` is required whenever `evidence`
 is not empty, `assetReason` whenever `assetId` is set, and a non-evergreen

@@ -143,10 +143,14 @@ function metaIdOption(parsed, name, required = false) {
   return value;
 }
 
+// Date.parse rolls 2026-02-30 over to March 2; a real date round-trips.
+function isRealDate(value) {
+  return DATE.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
 function dateOption(parsed, name) {
   const value = optionalOption(parsed, name);
-  // Date.parse rolls 2026-02-30 over to March 2; a real date round-trips.
-  if (value !== undefined && (!DATE.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value)) {
+  if (value !== undefined && !isRealDate(value)) {
     throw new CliError('invalid_request', `--${name} must be a YYYY-MM-DD date.`);
   }
   return value;
@@ -450,6 +454,7 @@ const POSTS_SCHEMA = {
           properties: {
             ...IDEA_SCHEMA.properties,
             reviewNote: { ...str(300, 0), description: 'what the manager should check before approving' },
+            plannedDate: { ...str(10), pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'a YYYY-MM-DD date, the day the post is planned for' },
             drafts: list(DRAFT_SCHEMA, MAX_DRAFTS, { minItems: 1 }),
           },
         },
@@ -694,6 +699,9 @@ function checkPostsBundle(bundle, issues) {
     });
     if (post.whyNowCategory && post.whyNowCategory !== 'evergreen' && evidence.length === 0) {
       issues.push({ path: `${at}.whyNowCategory`, message: `${post.whyNowCategory} needs cited evidence; use evergreen or cite a signal` });
+    }
+    if (typeof post.plannedDate === 'string' && DATE.test(post.plannedDate) && !isRealDate(post.plannedDate)) {
+      issues.push({ path: `${at}.plannedDate`, message: 'is not a real date' });
     }
     if (post.assetId && !post.assetReason) {
       issues.push({ path: `${at}.assetReason`, message: 'is required when assetId is set' });
@@ -1258,6 +1266,12 @@ const COMMANDS = {
   ),
   'posts:submit': sendFile('posts', campaignRoute('/posts')),
   'run:get': get(idRoute('ideation-runs', 'id')),
+  'post:date': withConfig(async (parsed, config) => {
+    const date = dateOption(parsed, 'date');
+    const clear = flagOption(parsed, 'clear');
+    if (Boolean(date) === Boolean(clear)) throw new CliError('invalid_request', 'Give either --date YYYY-MM-DD or --clear.');
+    return emit(await api(config, 'PATCH', idRoute('ideas', 'idea')(parsed), { body: { plannedDate: date || null } }));
+  }),
   'drafts:submit': sendFile('drafts', idRoute('ideas', 'idea', '/drafts')),
   'draft:get': get(idRoute('drafts', 'id')),
   'draft:submit': post(idRoute('drafts', 'id', '/submit'), () => ({})),
@@ -1345,6 +1359,7 @@ const COMMANDS = {
       ideas: `--campaign <campaignId> [--status ${IDEA_STATUSES.join('|')}]`,
       'posts:submit': '--campaign <campaignId> --file <posts.json> [--dry-run]',
       'run:get': '--id <runId>',
+      'post:date': '--idea <ideaId> (--date YYYY-MM-DD | --clear)',
       'drafts:submit': '--idea <ideaId> --file <drafts.json> [--dry-run]',
       'draft:get': '--id <draftId>',
       'draft:submit': '--id <draftId>',
