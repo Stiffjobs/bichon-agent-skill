@@ -12,6 +12,12 @@ Run `npx skills update bichon` to get the latest.
   can be checked against what the review shows.
 - `post:title --idea <ideaId> --title <text>` renames a stored post (at most
   200 characters). An imported plan's post keeps its title (409).
+- `draft:title --id <draftId> [--title <text>] [--variant-note <text>]`
+  renames a draft or rewrites its variant note in any status, approved
+  included, without touching its caption, media, revision or approval
+  (`--variant-note ''` clears it). Refused (409) on an imported plan's post,
+  for a new title on a draft with planned images, and while its pre-review
+  runs.
 
 ## 0.13.0 (2026-10-26)
 

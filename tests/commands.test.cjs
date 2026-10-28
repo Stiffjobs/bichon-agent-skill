@@ -289,3 +289,16 @@ test('post:title renames a stored post', async () => {
     assert.equal(refused.requests.length, 0, args.join(' '));
   }
 });
+
+test('draft:title relabels a draft and clears its variant note with an empty value', async () => {
+  const both = await call(['draft:title', '--id', 'd1', '--title', '11/17 刮完鬍子很刺', '--variant-note', '建議 2026-11-17 20:00']);
+  assert.equal(both.code, 0, both.stdout);
+  assert.deepEqual([both.requests[0].method, both.requests[0].path, both.requests[0].body], ['PATCH', '/agent/v1/drafts/d1', { title: '11/17 刮完鬍子很刺', variantNote: '建議 2026-11-17 20:00' }]);
+  const cleared = await call(['draft:title', '--id', 'd1', '--variant-note', '']);
+  assert.deepEqual(cleared.requests[0].body, { variantNote: '' });
+  for (const args of [[], ['--variant-note'], ['--title', ' '], ['--title', 'x'.repeat(201)]]) {
+    const refused = await call(['draft:title', '--id', 'd1', ...args]);
+    assert.equal(refused.code, 1, args.join(' '));
+    assert.equal(refused.requests.length, 0, args.join(' '));
+  }
+});

@@ -1279,6 +1279,16 @@ const COMMANDS = {
   }),
   'drafts:submit': sendFile('drafts', idRoute('ideas', 'idea', '/drafts')),
   'draft:get': get(idRoute('drafts', 'id')),
+  'draft:title': withConfig(async (parsed, config) => {
+    const title = optionalOption(parsed, 'title');
+    const rawNote = parsed['variant-note'];
+    if (rawNote === true) throw new CliError('invalid_request', "Missing --variant-note <value> (pass '' to clear it).");
+    const variantNote = rawNote === undefined ? undefined : rawNote.trim();
+    if (title === undefined && variantNote === undefined) throw new CliError('invalid_request', 'Give --title <text>, --variant-note <text> or both.');
+    if (title !== undefined && title.length > 200) throw new CliError('invalid_request', '--title takes at most 200 characters.');
+    if (variantNote !== undefined && variantNote.length > 1000) throw new CliError('invalid_request', '--variant-note takes at most 1000 characters.');
+    return emit(await api(config, 'PATCH', idRoute('drafts', 'id')(parsed), { body: { ...(title !== undefined ? { title } : {}), ...(variantNote !== undefined ? { variantNote } : {}) } }));
+  }),
   'draft:submit': post(idRoute('drafts', 'id', '/submit'), () => ({})),
   'draft:media:add': withConfig(addDraftMedia),
   'draft:media:remove': del((parsed) => `${idRoute('drafts', 'id')(parsed)}${idRoute('media', 'media')(parsed)}`),
@@ -1368,6 +1378,7 @@ const COMMANDS = {
       'post:title': '--idea <ideaId> --title <text>',
       'drafts:submit': '--idea <ideaId> --file <drafts.json> [--dry-run]',
       'draft:get': '--id <draftId>',
+      'draft:title': '--id <draftId> [--title <text>] [--variant-note <text>]',
       'draft:submit': '--id <draftId>',
       'draft:media:add': '--id <draftId> --file <image.jpg|png|webp>',
       'draft:media:remove': '--id <draftId> --media <mediaId>',
