@@ -18,7 +18,7 @@ description: >
   the manager, and builds Meta ad campaigns, ad sets, creatives and ads for
   the brand, uploading the ad images and videos, all created paused.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-10-26
+last-updated: 2026-10-28
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -76,16 +76,17 @@ code 1 on any failure. The API key is never printed.
 | `context --campaign <id> [--out context.json]` | The full ContextBundle; `--out` writes it to a file and prints a summary with `versions` |
 | `evidence --campaign <id> [--q <text>] [--limit 1..50] [--kind article\|competitor_post\|threads_post]` | Analyzed research items (useful, relevant to the current brief) as `{ items, pendingCount }`, each with `signalId`/`versionId` or `discoveryId` to cite; `--q` is a semantic search |
 | `competitors --brand <id>` | Tracked competitors with analyzed post counts, themes, engagement reads and useful share |
-| `ideas --campaign <id> [--status proposed\|approved\|killed\|done]` | The campaign's posts (idea briefs) with their drafts (default: all but killed) |
+| `ideas --campaign <id> [--status proposed\|approved\|killed\|done]` | The campaign's posts (idea briefs) with their drafts (default: all but killed); each has `plannedDate` (stored, or null) and `reviewDate`, the YYYY-MM-DD day the review list sorts it by in the campaign's time zone (booked slot, else plan slot, else plan date, else `plannedDate`) |
 | `posts:submit --campaign <id> --file posts.json [--dry-run]` | Validate a PostsBundle locally, then store the run, every accepted post's brief and its drafts in one call: `{ runId, counts, accepted: [{ index, ideaId, title, topicKey, drafts: [{ draftId, socialProfileId, status, voiceCheck }], warnings: [{ code, reason, match? }] }], rejected: [{ index, title, code, reason }] }` |
 | `run:get --id <runId>` | One submission run |
-| `post:date --idea <ideaId> (--date YYYY-MM-DD \| --clear)` | Set or clear the day a stored post is planned for: `{ ideaId, plannedDate }`. Refused (409) on an imported plan's post, which keeps the plan's date |
+| `post:date --idea <ideaId> (--date YYYY-MM-DD \| --clear)` | Set or clear the day a stored post is planned for: `{ ideaId, title, plannedDate, reviewDate }`. A booked or plan-slotted draft keeps its own day, so check `reviewDate`. Refused (409) on an imported plan's post, which keeps the plan's date |
+| `post:title --idea <ideaId> --title <text>` | Rename a stored post (≤ 200 characters), e.g. after moving its date when the title carries one: `{ ideaId, title, plannedDate, reviewDate }`. Draft titles are the drafts' own. Refused (409) on an imported plan's post |
 | `drafts:submit --idea <id> --file drafts.json [--dry-run]` | Validate a DraftsBundle locally, then rewrite an existing post's drafts, or add drafts for target accounts it has none for |
-| `draft:get --id <draftId>` | One draft with caption, `followUps`, voice check, review state, `revision` and `requests` (review comments on the current revision) |
+| `draft:get --id <draftId>` | One draft with its post's `plannedDate` and `reviewDate`, caption, `followUps`, voice check, review state, `revision` and `requests` (review comments on the current revision) |
 | `draft:submit --id <draftId>` | Send a draft to manager review; each submit creates the next revision |
 | `draft:media:add --id <draftId> --file <image>` | Upload a JPEG, PNG or WebP (≤ 8 MB) and attach it as the draft's next image: `{ mediaId, contentType, bytes }` |
 | `draft:media:remove --id <draftId> --media <mediaId>` | Remove one image from the draft; the rest keep their order |
-| `reviews --campaign <id> [--status changes_requested\|rejected\|submitted\|approved\|all] [--history]` | The campaign's drafts under review (default `changes_requested`, at most 50): `{ drafts: [{ draftId, ideaId, ideaTitle, socialProfileId, username, status, revision, caption, followUps, reviewNote, requests }], truncated }`; `requests` are the comments on the current revision (`--history`: every revision), each `{ commentId, author: manager\|client, body, decision: approve\|request_changes\|reject\|null, revision, createdAt, images: [{ url, width, height, expiresAt }] }` |
+| `reviews --campaign <id> [--status changes_requested\|rejected\|submitted\|approved\|all] [--history]` | The campaign's drafts under review (default `changes_requested`, at most 50): `{ drafts: [{ draftId, ideaId, ideaTitle, plannedDate, reviewDate, socialProfileId, username, status, revision, caption, followUps, reviewNote, requests }], truncated }`; `requests` are the comments on the current revision (`--history`: every revision), each `{ commentId, author: manager\|client, body, decision: approve\|request_changes\|reject\|null, revision, createdAt, images: [{ url, width, height, expiresAt }] }` |
 | `publications --brand <id> (--month YYYY-MM \| --since YYYY-MM-DD --until YYYY-MM-DD) [--campaign <id>] [--status pending\|scheduled\|publishing\|published\|failed\|cancelled] [--out file.json]` | What Bichon scheduled or published in the window (at most 62 days): status, permalink and 24h / 7-day reads per post; see Publications |
 | `brand:context --brand <id>` | Brand voice, pillars, audience and personas, every connected account (channel analysis, voice, manager notes), competitors, assets, recent campaigns, evidence sources |
 | `personas:draft --brand <id> [--profile <socialProfileId>]` | Up to five personas drafted from an account's past posts; nothing is saved |

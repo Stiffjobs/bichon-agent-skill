@@ -1272,6 +1272,11 @@ const COMMANDS = {
     if (Boolean(date) === Boolean(clear)) throw new CliError('invalid_request', 'Give either --date YYYY-MM-DD or --clear.');
     return emit(await api(config, 'PATCH', idRoute('ideas', 'idea')(parsed), { body: { plannedDate: date || null } }));
   }),
+  'post:title': withConfig(async (parsed, config) => {
+    const title = requireOption(parsed, 'title');
+    if (title.length > 200) throw new CliError('invalid_request', '--title takes at most 200 characters.');
+    return emit(await api(config, 'PATCH', idRoute('ideas', 'idea')(parsed), { body: { title } }));
+  }),
   'drafts:submit': sendFile('drafts', idRoute('ideas', 'idea', '/drafts')),
   'draft:get': get(idRoute('drafts', 'id')),
   'draft:submit': post(idRoute('drafts', 'id', '/submit'), () => ({})),
@@ -1360,6 +1365,7 @@ const COMMANDS = {
       'posts:submit': '--campaign <campaignId> --file <posts.json> [--dry-run]',
       'run:get': '--id <runId>',
       'post:date': '--idea <ideaId> (--date YYYY-MM-DD | --clear)',
+      'post:title': '--idea <ideaId> --title <text>',
       'drafts:submit': '--idea <ideaId> --file <drafts.json> [--dry-run]',
       'draft:get': '--id <draftId>',
       'draft:submit': '--id <draftId>',

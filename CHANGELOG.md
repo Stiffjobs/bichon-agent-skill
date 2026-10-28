@@ -3,6 +3,16 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.14.0 (2026-10-28)
+
+- `ideas`, `reviews` and `draft:get` return each post's `plannedDate` and
+  `reviewDate`: the `YYYY-MM-DD` day the campaign review lists it on, in the
+  campaign's time zone (a booked slot, else the draft's plan slot, else the
+  plan's date, else `plannedDate`). `post:date` returns both too, so a move
+  can be checked against what the review shows.
+- `post:title --idea <ideaId> --title <text>` renames a stored post (at most
+  200 characters). An imported plan's post keeps its title (409).
+
 ## 0.13.0 (2026-10-26)
 
 - A post in `posts:submit` may carry `plannedDate` (`YYYY-MM-DD`), the day

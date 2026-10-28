@@ -278,3 +278,14 @@ test('post:date sets or clears a stored post planned date', async () => {
     assert.equal(refused.requests.length, 0, args.join(' '));
   }
 });
+
+test('post:title renames a stored post', async () => {
+  const renamed = await call(['post:title', '--idea', 'i1', '--title', '11/29 化妝水到底要不要擦？']);
+  assert.equal(renamed.code, 0, renamed.stdout);
+  assert.deepEqual([renamed.requests[0].method, renamed.requests[0].path, renamed.requests[0].body], ['PATCH', '/agent/v1/ideas/i1', { title: '11/29 化妝水到底要不要擦？' }]);
+  for (const args of [[], ['--title', ' '], ['--title', 'x'.repeat(201)]]) {
+    const refused = await call(['post:title', '--idea', 'i1', ...args]);
+    assert.equal(refused.code, 1, args.join(' '));
+    assert.equal(refused.requests.length, 0, args.join(' '));
+  }
+});

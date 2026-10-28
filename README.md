@@ -103,6 +103,7 @@ $S competitors --brand <brandId>
 # caption per target account
 $S posts:submit --campaign <campaignId> --file work/posts.json
 $S post:date --idea <ideaId> --date 2026-11-07   # set or move a post's planned day
+$S post:title --idea <ideaId> --title '11/07 …'      # rename a post, e.g. after moving its day
 # → { runId, accepted: [{ ideaId, drafts: [{ draftId, voiceCheck }] }], rejected: [{ code, reason }] }
 $S draft:media:add --id <draftId> --file work/card1.png   # image posts: once per image
 # the agent rewrites any caption with failed voice checks in work/drafts.json
