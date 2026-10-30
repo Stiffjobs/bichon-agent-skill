@@ -907,7 +907,7 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`,
 **Rules.**
 
 - Everything is created `PAUSED`, and the agent can never activate it: only
-  a manager turns delivery on, on the dashboard's Tools → Ads page. After
+  a manager turns delivery on, on the dashboard's Ads page (under Calendar). After
   creating, tell the manager exactly what you created (each name and id, the
   budget in the account's currency, the dates) and that it waits for them to
   activate it.
