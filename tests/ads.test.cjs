@@ -62,6 +62,16 @@ test('maps the ads read commands to their routes and queries', async () => {
       '/agent/v1/brands/b1/ads/insights',
       { level: 'account', since: '2026-09-01', until: '2026-09-30', daily: '1' },
     ],
+    [
+      ['ads:insights', '--brand', 'b1', '--account', 'act_452488428670364', '--level', 'adset', '--campaign', '1, 2,1', '--sort', 'costPerResult', '--order', 'asc', '--compare'],
+      '/agent/v1/brands/b1/ads/insights',
+      { accountId: '452488428670364', level: 'adset', campaignId: '1,2', sort: 'costPerResult', order: 'asc', compare: '1' },
+    ],
+    [['ads:accounts', '--brand', 'b1'], '/agent/v1/brands/b1/ads/accounts', {}],
+    [['ads:account', '--brand', 'b1', '--account', '9'], '/agent/v1/brands/b1/ads/account', { accountId: '9' }],
+    [['ads:records', '--brand', 'b1', '--account', '9'], '/agent/v1/brands/b1/ads/records', { accountId: '9' }],
+    [['ads:list', '--brand', 'b1', '--kind', 'ads', '--account', 'act_9'], '/agent/v1/brands/b1/ads/ads', { accountId: '9' }],
+    [['ads:targeting', '--brand', 'b1', '--account', '9', '--type', 'geo', '--q', 'Taipei'], '/agent/v1/brands/b1/ads/targeting', { accountId: '9', type: 'geo', q: 'Taipei' }],
     [['ads:list', '--brand', 'b1', '--kind', 'campaigns'], '/agent/v1/brands/b1/ads/campaigns', {}],
     [['ads:list', '--brand', 'b1', '--kind', 'adsets', '--campaign', '1', '--limit', '200'], '/agent/v1/brands/b1/ads/adsets', { campaignId: '1', limit: '200' }],
     [['ads:list', '--brand', 'b1', '--kind', 'ads', '--campaign', '1', '--adset', '2'], '/agent/v1/brands/b1/ads/ads', { campaignId: '1', adsetId: '2' }],
@@ -98,6 +108,13 @@ test('rejects bad ads options before any request', async () => {
     ['ads:insights', '--brand', 'b1', '--campaign', 'act_123'],
     ['ads:insights', '--brand', 'b1', '--adset', '12a'],
     ['ads:insights', '--brand', 'b1', '--ad', '1'.repeat(33)],
+    ['ads:insights', '--brand', 'b1', '--ad', '1,2'],
+    ['ads:insights', '--brand', 'b1', '--campaign', Array.from({ length: 101 }, (_, i) => String(i + 1)).join(',')],
+    ['ads:insights', '--brand', 'b1', '--sort', 'name'],
+    ['ads:insights', '--brand', 'b1', '--order', 'asc'],
+    ['ads:insights', '--brand', 'b1', '--compare=yes'],
+    ['ads:insights', '--brand', 'b1', '--account', 'act_abc'],
+    ['ads:account', '--brand', 'b1', '--account', 'x'],
     ['ads:list', '--brand', 'b1'],
     ['ads:list', '--brand', 'b1', '--kind', 'campaign'],
     ['ads:list', '--brand', 'b1', '--kind', 'pixels'],
@@ -154,6 +171,15 @@ test('ads:create posts the params verbatim to the kind route', async () => {
       assert.equal(result.requests[0].headers['content-type'], 'application/json');
       assert.deepEqual(result.requests[0].body, examples[kind]);
     }
+    server.reply(() => ok({
+      account: { currency: 'TWD' },
+      level: 'campaign',
+      range: { since: '2026-10-01', until: '2026-10-07' },
+      rows: [{ id: '1', name: 'Top', spend: 500 }],
+      truncated: true,
+    }));
+    const cut = await call(['ads:insights', '--brand', 'b1', '--limit', '1', '--table']);
+    assert.match(cut.json.data.table, /\| 1 \| Top \| TWD 500 \| — \|/);
   } finally {
     server.reply(echo);
   }
@@ -361,4 +387,34 @@ test('help lists every ads command', async () => {
     assert.ok(command in help.json.data.commands, command);
   }
   assert.match(help.json.data.commands['ads:insights'], /--daily/);
+});
+
+test('--table adds a ranked Markdown table and the period comparison', async () => {
+  server.reply(() => ok({
+    account: { accountId: '9', currency: 'TWD' },
+    level: 'campaign',
+    range: { since: '2026-10-01', until: '2026-10-07' },
+    rows: [
+      { id: '1', name: 'Broad | video', spend: 750, results: 5, costPerResult: 150, purchases: 5, purchaseRoas: 2.4, linkCtr: 1.234, costPerLinkClick: 12 },
+      { id: '2', name: 'Retarget', spend: 250, results: null, costPerResult: null, purchases: 0, purchaseRoas: null, linkCtr: null, costPerLinkClick: null },
+    ],
+    truncated: false,
+    totals: { spend: 1000, results: 5, costPerResult: 200, purchases: 5, purchaseRoas: 1.8, linkCtr: 1.1, cpm: 300 },
+    previous: {
+      range: { since: '2026-09-24', until: '2026-09-30' },
+      totals: { spend: 800, results: 4, costPerResult: 200, purchases: 4, purchaseRoas: 1.5, linkCtr: 1.0, cpm: 0 },
+    },
+  }));
+  try {
+    const result = await call(['ads:insights', '--brand', 'b1', '--compare', '--table']);
+    assert.equal(result.code, 0, result.stdout);
+    assert.equal(result.requests[0].query.table, undefined);
+    const { table } = result.json.data;
+    assert.match(table, /\| 1 \| Broad \/ video \| TWD 750 \| 75% \| 5 \| TWD 150 \| 5 \| 2\.40 \| 1\.23% \| TWD 12 \|/);
+    assert.match(table, /\| 2 \| Retarget \| TWD 250 \| 25% \| — \| — \| 0 \| — \| — \| — \|/);
+    assert.match(table, /\| Spend \| TWD 1,000 \| TWD 800 \| \+25% \|/);
+    assert.match(table, /\| CPM \| TWD 300 \| TWD 0 \| — \|/);
+  } finally {
+    server.reply(echo);
+  }
 });

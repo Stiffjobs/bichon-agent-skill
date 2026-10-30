@@ -50,6 +50,12 @@ const ANALYSIS_RELEVANCE = ['direct', 'adjacent', 'off_topic'];
 const ADS_LEVELS = ['account', 'campaign', 'adset', 'ad'];
 const ADS_RANGES = ['today', 'yesterday', 'last_7d', 'last_14d', 'last_28d', 'last_30d', 'last_90d', 'this_month', 'last_month'];
 const ADS_BREAKDOWNS = ['age', 'gender', 'country', 'publisher_platform', 'platform_position', 'device_platform'];
+const ADS_SORTS = [
+  'spend', 'impressions', 'reach', 'frequency', 'clicks', 'linkClicks', 'ctr', 'linkCtr', 'cpc', 'costPerLinkClick', 'cpm',
+  'results', 'costPerResult', 'contentViews', 'addsToCart', 'checkoutsInitiated', 'purchases', 'purchaseValue', 'purchaseRoas',
+  'videoPlays', 'videoViews', 'thruPlays',
+];
+const MAX_FILTER_IDS = 100;
 const AD_SEGMENTS = { campaign: 'campaigns', adset: 'adsets', creative: 'creatives', ad: 'ads' };
 const AD_KINDS = Object.keys(AD_SEGMENTS);
 const AD_UPDATE_KINDS = ['campaign', 'adset', 'ad'];
@@ -163,6 +169,25 @@ function integerOption(parsed, name, min, max) {
     throw new CliError('invalid_request', `--${name} must be an integer from ${min} to ${max}.`);
   }
   return Number(value);
+}
+
+// One Meta id or a comma-separated list of them, sent on as one string.
+function metaIdsOption(parsed, name) {
+  const value = optionalOption(parsed, name);
+  if (value === undefined) return undefined;
+  const ids = [...new Set(value.split(',').map((id) => id.trim()))];
+  if (ids.length > MAX_FILTER_IDS || !ids.every((id) => META_ID.test(id))) {
+    throw new CliError('invalid_request', `--${name} must be a Meta id or up to ${MAX_FILTER_IDS} comma-separated ids.`);
+  }
+  return ids.join(',');
+}
+
+function accountOption(parsed) {
+  const value = optionalOption(parsed, 'account');
+  if (value === undefined) return undefined;
+  const id = value.replace(/^act_/, '');
+  if (!META_ID.test(id)) throw new CliError('invalid_request', '--account must be an ad account id (act_123 or 123).');
+  return id;
 }
 
 function flagOption(parsed, name) {
@@ -1122,7 +1147,7 @@ async function addAdMedia(parsed, config) {
   if (name !== undefined && name.length > 100) throw new CliError('invalid_request', '--name must be 1 to 100 characters.');
   const upload = readUploadFile(parsed, AD_MEDIA_TYPES, 'a JPEG or PNG image, or an MP4 or MOV video');
   const { key } = await uploadToStorage(config, mediaRoute, upload);
-  const added = await api(config, 'POST', mediaRoute, { body: name === undefined ? { key } : { key, name } });
+  const added = await api(config, 'POST', mediaRoute, { body: name === undefined ? { key } : { key, name }, query: { accountId: accountOption(parsed) } });
   return succeed({ ...added.data, contentType: upload.contentType, bytes: upload.bytes.byteLength });
 }
 
@@ -1133,6 +1158,9 @@ function adsInsightsQuery(parsed) {
   if (range && (since || until)) throw new CliError('invalid_request', 'Give either --range or --since and --until, not both.');
   if (Boolean(since) !== Boolean(until)) throw new CliError('invalid_request', '--since and --until go together.');
   if (since && since > until) throw new CliError('invalid_request', '--since must not be after --until.');
+  const sort = enumOption(parsed, 'sort', ADS_SORTS);
+  const order = enumOption(parsed, 'order', ['asc', 'desc']);
+  if (order && !sort) throw new CliError('invalid_request', '--order needs --sort.');
   return {
     level: enumOption(parsed, 'level', ADS_LEVELS),
     range,
@@ -1140,11 +1168,61 @@ function adsInsightsQuery(parsed) {
     until,
     daily: flagOption(parsed, 'daily') ? 1 : undefined,
     breakdown: enumOption(parsed, 'breakdown', ADS_BREAKDOWNS),
-    campaignId: metaIdOption(parsed, 'campaign'),
-    adsetId: metaIdOption(parsed, 'adset'),
+    campaignId: metaIdsOption(parsed, 'campaign'),
+    adsetId: metaIdsOption(parsed, 'adset'),
     adId: metaIdOption(parsed, 'ad'),
+    sort,
+    order,
+    compare: flagOption(parsed, 'compare') ? 1 : undefined,
     limit: integerOption(parsed, 'limit', 1, 500),
+    accountId: accountOption(parsed),
   };
+}
+
+const TABLE_ROWS = 20;
+
+// A ranked Markdown table of the rows for the manager: spend with its share,
+// the result and what it cost, the purchase funnel's end, and click quality.
+function insightsTable(data) {
+  const currency = data.account && data.account.currency;
+  const money = (value) => (value === null || value === undefined ? '—' : `${currency} ${Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
+  const count = (value) => (value === null || value === undefined ? '—' : Number(value).toLocaleString('en-US'));
+  const percent = (value) => (value === null || value === undefined ? '—' : `${Number(value).toFixed(2)}%`);
+  const rows = data.rows || [];
+  // Shares of a truncated read would only count the rows that came back.
+  const spendTotal = data.totals ? data.totals.spend : data.truncated ? 0 : rows.reduce((sum, row) => sum + (row.spend || 0), 0);
+  const label = (row) => [row.name || row.id || data.level, row.date, row.breakdown].filter(Boolean).join(' · ').replace(/\|/g, '/');
+  const lines = [
+    '| # | Row | Spend | Share | Results | Cost / result | Purchases | ROAS | CTR (link) | CPC (link) |',
+    '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ...rows.slice(0, TABLE_ROWS).map((row, index) => `| ${index + 1} | ${label(row)} | ${money(row.spend)} | ${spendTotal > 0 ? `${Math.round((row.spend / spendTotal) * 100)}%` : '—'} | ${count(row.results)} | ${money(row.costPerResult)} | ${count(row.purchases)} | ${row.purchaseRoas === null || row.purchaseRoas === undefined ? '—' : Number(row.purchaseRoas).toFixed(2)} | ${percent(row.linkCtr)} | ${money(row.costPerLinkClick)} |`),
+  ];
+  if (rows.length > TABLE_ROWS) lines.push('', `${rows.length - TABLE_ROWS} more rows not shown.`);
+  if (data.totals && data.previous) {
+    const change = (now, before) => (now === null || before === null || before === undefined || before === 0 ? '—' : `${now >= before ? '+' : ''}${(((now - before) / before) * 100).toFixed(0)}%`);
+    const t = data.totals;
+    const p = data.previous.totals;
+    lines.push(
+      '',
+      `| ${data.range.since} – ${data.range.until} | This period | ${data.previous.range.since} – ${data.previous.range.until} | Change |`,
+      '|---|---:|---:|---:|',
+      `| Spend | ${money(t.spend)} | ${money(p.spend)} | ${change(t.spend, p.spend)} |`,
+      `| Results | ${count(t.results)} | ${count(p.results)} | ${change(t.results, p.results)} |`,
+      `| Cost / result | ${money(t.costPerResult)} | ${money(p.costPerResult)} | ${change(t.costPerResult, p.costPerResult)} |`,
+      `| Purchases | ${count(t.purchases)} | ${count(p.purchases)} | ${change(t.purchases, p.purchases)} |`,
+      `| ROAS | ${t.purchaseRoas === null ? '—' : t.purchaseRoas.toFixed(2)} | ${p.purchaseRoas === null ? '—' : p.purchaseRoas.toFixed(2)} | ${change(t.purchaseRoas, p.purchaseRoas)} |`,
+      `| CTR (link) | ${percent(t.linkCtr)} | ${percent(p.linkCtr)} | ${change(t.linkCtr, p.linkCtr)} |`,
+      `| CPM | ${money(t.cpm)} | ${money(p.cpm)} | ${change(t.cpm, p.cpm)} |`,
+    );
+  }
+  return lines.join('\n');
+}
+
+async function readInsights(parsed, config) {
+  const table = flagOption(parsed, 'table');
+  const result = await api(config, 'GET', brandRoute('/ads/insights')(parsed), { query: adsInsightsQuery(parsed) });
+  if (table && result.data) result.data = { ...result.data, table: insightsTable(result.data) };
+  return emit(result);
 }
 
 // Days are read in this machine's time zone: --until is inclusive, so the
@@ -1213,12 +1291,12 @@ const idRoute = (collection, option, suffix = '') => (parsed) => `/${collection}
 const campaignRoute = (suffix) => idRoute('campaigns', 'campaign', suffix);
 const brandRoute = (suffix) => idRoute('brands', 'brand', suffix);
 
-async function submitBundle(parsed, config, kind, route, { method = 'POST', extra = {} } = {}) {
+async function submitBundle(parsed, config, kind, route, { method = 'POST', extra = {}, query } = {}) {
   const bundle = loadBundle(parsed, kind);
   if (parsed['dry-run']) {
     return succeed({ valid: true, dryRun: true, bundle: kind, counts: BUNDLES[kind].counts(bundle) });
   }
-  return emit(await api(config, method, route, { body: { ...bundle, ...extra } }));
+  return emit(await api(config, method, route, { body: { ...bundle, ...extra }, query }));
 }
 
 function sendFile(kind, route, options) {
@@ -1328,32 +1406,37 @@ const COMMANDS = {
   'research:add': sendFile('captures', campaignRoute('/research/captures')),
   'research:sources': get(brandRoute('/research/sources')),
   'analysis:request': post((parsed) => `${brandRoute()(parsed)}${idRoute('accounts', 'profile', '/analysis')(parsed)}`),
-  'ads:account': get(brandRoute('/ads/account')),
+  'ads:accounts': get(brandRoute('/ads/accounts')),
+  'ads:account': get(brandRoute('/ads/account'), (parsed) => ({ accountId: accountOption(parsed) })),
   'ads:records': get(
     brandRoute('/ads/records'),
     (parsed) => ({
       campaignId: metaIdOption(parsed, 'campaign'),
       adsetId: metaIdOption(parsed, 'adset'),
       limit: integerOption(parsed, 'limit', 1, 200),
+      accountId: accountOption(parsed),
     }),
   ),
-  'ads:insights': get(brandRoute('/ads/insights'), adsInsightsQuery),
-  'ads:list': get((parsed) => brandRoute(`/ads/${requiredEnumOption(parsed, 'kind', AD_LIST_KINDS)}`)(parsed), adsListQuery),
+  'ads:insights': withConfig(readInsights),
+  'ads:list': get(
+    (parsed) => brandRoute(`/ads/${requiredEnumOption(parsed, 'kind', AD_LIST_KINDS)}`)(parsed),
+    (parsed) => ({ ...adsListQuery(parsed), accountId: accountOption(parsed) }),
+  ),
   'ads:create': withConfig((parsed, config) => {
     const kind = requiredEnumOption(parsed, 'kind', AD_KINDS);
-    return submitBundle(parsed, config, `ad-${kind}`, brandRoute(`/ads/${AD_SEGMENTS[kind]}`)(parsed));
+    return submitBundle(parsed, config, `ad-${kind}`, brandRoute(`/ads/${AD_SEGMENTS[kind]}`)(parsed), { query: { accountId: accountOption(parsed) } });
   }),
   'ads:update': withConfig((parsed, config) => {
     const kind = requiredEnumOption(parsed, 'kind', AD_UPDATE_KINDS);
     const route = `${brandRoute(`/ads/${AD_SEGMENTS[kind]}`)(parsed)}/${metaIdOption(parsed, 'id', true)}`;
-    return submitBundle(parsed, config, `ad-${kind}-update`, route, { method: 'PATCH' });
+    return submitBundle(parsed, config, `ad-${kind}-update`, route, { method: 'PATCH', query: { accountId: accountOption(parsed) } });
   }),
   'ads:media:add': withConfig(addAdMedia),
   'ads:media': get(
     brandRoute('/ads/media'),
-    (parsed) => ({ kind: enumOption(parsed, 'kind', AD_MEDIA_KINDS), limit: integerOption(parsed, 'limit', 1, 200) }),
+    (parsed) => ({ kind: enumOption(parsed, 'kind', AD_MEDIA_KINDS), limit: integerOption(parsed, 'limit', 1, 200), accountId: accountOption(parsed) }),
   ),
-  'ads:targeting': get(brandRoute('/ads/targeting'), adsTargetingQuery),
+  'ads:targeting': get(brandRoute('/ads/targeting'), (parsed) => ({ ...adsTargetingQuery(parsed), accountId: accountOption(parsed) })),
   schema: async (args) => {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
@@ -1397,15 +1480,16 @@ const COMMANDS = {
       'research:add': '--campaign <campaignId> --file <captures.json> [--dry-run]',
       'research:sources': '--brand <brandId>',
       'analysis:request': '--brand <brandId> --profile <socialProfileId>',
-      'ads:account': '--brand <brandId>',
-      'ads:records': '--brand <brandId> [--campaign <id>] [--adset <id>] [--limit 1..200]',
-      'ads:insights': `--brand <brandId> [--level ${ADS_LEVELS.join('|')}] [--range ${ADS_RANGES.join('|')}] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown ${ADS_BREAKDOWNS.join('|')}] [--campaign <id>] [--adset <id>] [--ad <id>] [--limit 1..500]`,
-      'ads:list': `--brand <brandId> --kind ${AD_LIST_KINDS.join('|')} [--campaign <id>] [--adset <id>] [--limit 1..200]`,
-      'ads:create': `--brand <brandId> --kind ${AD_KINDS.join('|')} --file <params.json> [--dry-run]`,
-      'ads:update': `--brand <brandId> --kind ${AD_UPDATE_KINDS.join('|')} --id <metaId> --file <params.json> [--dry-run]`,
-      'ads:media:add': '--brand <brandId> --file <image.jpg|png|video.mp4|mov> [--name <name>]',
-      'ads:media': `--brand <brandId> [--kind ${AD_MEDIA_KINDS.join('|')}] [--limit 1..200]`,
-      'ads:targeting': `--brand <brandId> --type ${TARGETING_TYPES.join('|')} --q <text>`,
+      'ads:accounts': '--brand <brandId>',
+      'ads:account': '--brand <brandId> [--account <accountId>]',
+      'ads:records': '--brand <brandId> [--account <accountId>] [--campaign <id>] [--adset <id>] [--limit 1..200]',
+      'ads:insights': `--brand <brandId> [--account <accountId>] [--level ${ADS_LEVELS.join('|')}] [--range ${ADS_RANGES.join('|')}] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown ${ADS_BREAKDOWNS.join('|')}] [--campaign <id,...>] [--adset <id,...>] [--ad <id>] [--sort <metric> [--order asc|desc]] [--compare] [--table] [--limit 1..500]`,
+      'ads:list': `--brand <brandId> [--account <accountId>] --kind ${AD_LIST_KINDS.join('|')} [--campaign <id>] [--adset <id>] [--limit 1..200]`,
+      'ads:create': `--brand <brandId> [--account <accountId>] --kind ${AD_KINDS.join('|')} --file <params.json> [--dry-run]`,
+      'ads:update': `--brand <brandId> [--account <accountId>] --kind ${AD_UPDATE_KINDS.join('|')} --id <metaId> --file <params.json> [--dry-run]`,
+      'ads:media:add': '--brand <brandId> [--account <accountId>] --file <image.jpg|png|video.mp4|mov> [--name <name>]',
+      'ads:media': `--brand <brandId> [--account <accountId>] [--kind ${AD_MEDIA_KINDS.join('|')}] [--limit 1..200]`,
+      'ads:targeting': `--brand <brandId> [--account <accountId>] --type ${TARGETING_TYPES.join('|')} --q <text>`,
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
     env: ['BICHON_AGENT_API_KEY', 'BICHON_AGENT_BASE_URL', 'BICHON_CONFIG_PATH'],

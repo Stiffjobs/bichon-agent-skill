@@ -18,7 +18,7 @@ description: >
   the manager, and builds Meta ad campaigns, ad sets, creatives and ads for
   the brand, uploading the ad images and videos, all created paused.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-10-28
+last-updated: 2026-10-30
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -676,8 +676,15 @@ turn delivery on.
 **Prerequisite.** A manager connects the brand's Meta ad account on the
 dashboard's Connections page. A `409 ad_account_unavailable` (not connected,
 an account still to pick, or an expired login) means stop: tell the manager
-what the message says and wait for them to fix it. `ads:account --brand <id>`
-shows the account (`accountId`, `name`, `currency`, `timezoneName`,
+what the message says and wait for them to fix it.
+
+**Several accounts.** A brand can have more than one ad account connected.
+`ads:accounts --brand <id>` lists them (`accountId`, `name`, `currency`,
+`timezoneName`, `status`). With one account, the ads commands use it; with
+several, every ads command needs `--account <accountId>` (a 409 names the
+choices), so ask the manager which account they mean when it is not clear,
+and say which account each report covers. `ads:account --brand <id>
+[--account <accountId>]` shows the account (`accountId`, `name`, `currency`, `timezoneName`,
 `budgetUnitsPerCurrency`), the `pages` a creative can publish as (each with
 its linked `instagram` account or `null`) and the `pixels`; `warnings` names
 anything the login could not read.
@@ -687,20 +694,41 @@ level, range: { since, until }, rows, truncated }`, one row per campaign by
 default:
 
 ```bash
-./scripts/bichon.cjs ads:insights --brand <id> --level campaign --range last_28d
+./scripts/bichon.cjs ads:insights --brand <id> --level campaign --range last_28d --sort spend --compare --table
 ./scripts/bichon.cjs ads:insights --brand <id> --level account --range last_14d --daily
-./scripts/bichon.cjs ads:insights --brand <id> --level ad --campaign <campaignId> --since 2026-09-01 --until 2026-09-30
+./scripts/bichon.cjs ads:insights --brand <id> --level adset --campaign <id1>,<id2> --sort costPerResult --order asc
+./scripts/bichon.cjs ads:insights --brand <id> --level ad --campaign <campaignId> --since 2026-09-01 --until 2026-09-30 --sort purchaseRoas
 ./scripts/bichon.cjs ads:insights --brand <id> --level campaign --range last_28d --breakdown age
 ```
 
 - Each row has `id`, `name`, `campaignId`, `adsetId`, `date` (with
   `--daily`), `breakdown` (the age band, country, platform... with
-  `--breakdown`), `spend`, `impressions`, `reach`, `frequency`, `clicks`,
-  `linkClicks`, `ctr`, `cpc`, `cpm`, `actions` and `purchaseRoas`.
-- `ctr` is already a percent (1.23 means 1.23%). `spend`, `cpc` and `cpm`
-  are whole units of `account.currency`. `actions[]` are Meta's results
-  (`type`, e.g. `link_click`, `lead`, `purchase`; `value`; `costPer`, the cost
-  per result in the same currency).
+  `--breakdown`) and the columns of the manager's Ads Manager view:
+  `spend`, `impressions`, `reach`, `frequency`, `clicks`, `ctr`, `cpc`,
+  `cpm`, `linkClicks`, `linkCtr`, `costPerLinkClick`, `results` and
+  `costPerResult` (Ads Manager's "Results": whatever the objective
+  optimizes for), the purchase funnel `contentViews`, `addsToCart`,
+  `checkoutsInitiated`, `purchases`, `purchaseValue`, `purchaseRoas`, and
+  video `videoPlays`, `videoViews` (3-second plays), `thruPlays`. `actions`
+  lists every other result Meta counted (`type`, `value`, `costPer`).
+- `ctr` and `linkCtr` are already percents (1.23 means 1.23%). Money fields
+  are whole units of `account.currency`. A metric is `null` when there is
+  nothing to divide by (no clicks for a CPC, no purchases for a ROAS).
+- `--sort <metric>` orders the rows by any of those metric names, largest
+  first; `--order asc` for costs (`cpc`, `cpm`, `costPerResult`,
+  `costPerLinkClick`). Rows with no value come last. Spend, impressions,
+  reach, clicks, link clicks, CTR, CPC, CPM and frequency are sorted by
+  Meta before the row limit; any other sort ranks only the rows returned,
+  so pass `--limit 500` when `truncated` is true.
+- `--campaign` and `--adset` take one id or up to 100 comma-separated ids
+  (rows under any of them), as when the manager ticks rows in Ads Manager.
+- `--compare` adds `totals` (the whole selection for the range) and
+  `previous: { range, totals }`, the same number of days just before.
+- `--table` adds `table`: a ready Markdown table of the first 20 rows in
+  the order asked (spend and its share of the selection, blank on a
+  truncated read without `--compare`, results, cost per result, purchases,
+  ROAS, link CTR and link CPC) and, with `--compare`, this period against the
+  previous one with the change.
 - Ranges are calendar days in the ad account's timezone (`last_7d` is the
   seven days ending today); the resolved dates come back in `range`. Use
   `--range` or `--since` with `--until`, not both.
@@ -716,7 +744,12 @@ default:
   angles, hooks and personas are getting results. An ad built in Ads Manager
   has no record until it is given a brief (Rules).
 
-When reporting to the manager, state the date range and the currency. Compare
+When reporting to the manager, lead with what changed and why it matters,
+then show the numbers: paste the `--table` output (it already carries the
+range and currency), rank by what the campaign is for (`costPerResult`
+ascending or `purchaseRoas` for sales, `costPerLinkClick` for traffic), and
+read the funnel where it narrows most (link clicks → content views → adds
+to cart → checkouts → purchases). State the date range and the currency. Compare
 like with like: the same range, the same objective, the same result type.
 Do not call a winner on a handful of impressions or results, per ad or per
 angle, hook or persona; say when the data is too thin to tell (a few hundred
@@ -874,7 +907,7 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`,
 **Rules.**
 
 - Everything is created `PAUSED`, and the agent can never activate it: only
-  a manager turns delivery on, in the dashboard's Analytics → Ads tab. After
+  a manager turns delivery on, on the dashboard's Tools → Ads page. After
   creating, tell the manager exactly what you created (each name and id, the
   budget in the account's currency, the dates) and that it waits for them to
   activate it.
@@ -908,15 +941,16 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`,
 
 | Command | What it does |
 |---|---|
-| `ads:records --brand <id> [--campaign <id>] [--adset <id>] [--limit 1..200]` | What each ad tests (default 50, newest first): its `brief`, `ideaId`, `creativeId`, `copy` and media; join with `ads:insights --level ad` on `adId` |
-| `ads:account --brand <id>` | The connected ad account (`currency`, `timezoneName`, `budgetUnitsPerCurrency`), its Pages with linked Instagram accounts, pixels and `warnings` |
-| `ads:insights --brand <id> [--level account\|campaign\|adset\|ad] [--range today\|yesterday\|last_7d\|last_14d\|last_28d\|last_30d\|last_90d\|this_month\|last_month] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown age\|gender\|country\|publisher_platform\|platform_position\|device_platform] [--campaign <id>] [--adset <id>] [--ad <id>] [--limit 1..500]` | Performance rows (default: campaign level, `last_28d`, 100 rows): `{ account, level, range, rows, truncated }` |
-| `ads:list --brand <id> --kind campaigns\|adsets\|ads\|creatives [--campaign <id>] [--adset <id>] [--limit 1..200]` | The account's entities in Meta's field names (default 50): `{ items, truncated }`; `--campaign` filters ad sets and ads, `--adset` filters ads |
-| `ads:create --brand <id> --kind campaign\|adset\|creative\|ad --file params.json [--dry-run]` | Validate the params locally, then create the entity paused: `{ id, kind, status: "PAUSED" }` (a creative has no status); an ad needs a `brief` |
-| `ads:update --brand <id> --kind campaign\|adset\|ad --id <metaId> --file patch.json [--dry-run]` | Change some fields of a campaign, ad set or ad, or pause it, or replace an ad's `brief`: `{ id, kind, updated }` |
-| `ads:media:add --brand <id> --file <image or video> [--name <name>]` | Upload a JPEG or PNG (≤ 8 MB) or an MP4 or MOV (≤ 200 MB) to the ad account: `{ kind: "image", name, hash, url }` or `{ kind: "video", name, videoId }`, plus `contentType` and `bytes` |
-| `ads:media --brand <id> [--kind image\|video] [--limit 1..200]` | The account's ad images (default) or videos: `{ items, truncated }` |
-| `ads:targeting --brand <id> --type interest\|geo\|locale --q <text>` | Meta's targeting search, for the ids in `targeting`: `{ items }` |
+| `ads:accounts --brand <id>` | The brand's connected ad accounts: `accountId`, `name`, `currency`, `timezoneName`, `status`; with several, pass `--account` to every ads command |
+| `ads:records --brand <id> [--account <id>] [--campaign <id>] [--adset <id>] [--limit 1..200]` | What each ad tests (default 50, newest first): its `brief`, `ideaId`, `creativeId`, `copy` and media; join with `ads:insights --level ad` on `adId` |
+| `ads:account --brand <id> [--account <id>]` | The connected ad account (`currency`, `timezoneName`, `budgetUnitsPerCurrency`), its Pages with linked Instagram accounts, pixels and `warnings` |
+| `ads:insights --brand <id> [--account <id>] [--level account\|campaign\|adset\|ad] [--range today\|yesterday\|last_7d\|last_14d\|last_28d\|last_30d\|last_90d\|this_month\|last_month] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown age\|gender\|country\|publisher_platform\|platform_position\|device_platform] [--campaign <id,...>] [--adset <id,...>] [--ad <id>] [--sort <metric> [--order asc\|desc]] [--compare] [--table] [--limit 1..500]` | Performance rows (default: campaign level, `last_28d`, 100 rows, Meta's order): `{ account, level, range, rows, truncated }`, plus `totals` and `previous` with `--compare` and a Markdown `table` with `--table` |
+| `ads:list --brand <id> [--account <id>] --kind campaigns\|adsets\|ads\|creatives [--campaign <id>] [--adset <id>] [--limit 1..200]` | The account's entities in Meta's field names (default 50): `{ items, truncated }`; `--campaign` filters ad sets and ads, `--adset` filters ads |
+| `ads:create --brand <id> [--account <id>] --kind campaign\|adset\|creative\|ad --file params.json [--dry-run]` | Validate the params locally, then create the entity paused: `{ id, kind, status: "PAUSED" }` (a creative has no status); an ad needs a `brief` |
+| `ads:update --brand <id> [--account <id>] --kind campaign\|adset\|ad --id <metaId> --file patch.json [--dry-run]` | Change some fields of a campaign, ad set or ad, or pause it, or replace an ad's `brief`: `{ id, kind, updated }` |
+| `ads:media:add --brand <id> [--account <id>] --file <image or video> [--name <name>]` | Upload a JPEG or PNG (≤ 8 MB) or an MP4 or MOV (≤ 200 MB) to the ad account: `{ kind: "image", name, hash, url }` or `{ kind: "video", name, videoId }`, plus `contentType` and `bytes` |
+| `ads:media --brand <id> [--account <id>] [--kind image\|video] [--limit 1..200]` | The account's ad images (default) or videos: `{ items, truncated }` |
+| `ads:targeting --brand <id> [--account <id>] --type interest\|geo\|locale --q <text>` | Meta's targeting search, for the ids in `targeting`: `{ items }` |
 
 Meta ids (`--campaign`, `--adset`, `--ad`, `--id`) are digit strings.
 

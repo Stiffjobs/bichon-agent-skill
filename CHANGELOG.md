@@ -3,6 +3,20 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.15.0 (2026-10-30)
+
+- `ads:accounts --brand <id>` lists the brand's connected ad accounts, and
+  every ads command takes `--account <accountId>`, which a brand with
+  several accounts needs.
+- `ads:insights` takes `--sort <metric> [--order asc|desc]`, several
+  comma-separated ids in `--campaign` and `--adset`, `--compare` (adds
+  `totals` and the previous period's `previous: { range, totals }`) and
+  `--table` (adds a ranked Markdown `table`, with the period comparison
+  under `--compare`).
+- SKILL.md lists the row metrics the Ads Manager columns brought (results,
+  cost per result, link CTR and CPC, the purchase funnel, purchase value and
+  ROAS, video plays) and how to report them.
+
 ## 0.14.0 (2026-10-28)
 
 - `ideas`, `reviews` and `draft:get` return each post's `plannedDate` and

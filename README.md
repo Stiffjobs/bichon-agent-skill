@@ -75,9 +75,11 @@ Review loop: after reviewing drafts in the dashboard (campaign → Review posts)
 
 Ads: once a manager has connected the brand's Meta ad account on the
 Connections page, ask the agent how the ads did ("how did our campaigns do in
-the last 28 days?") or to build one ("set up a traffic campaign for the autumn
+the last 28 days?", "which ad sets have the cheapest purchases?"); it reports a
+ranked table with the change against the period before. Name the ad account
+when the brand has several. Or ask it to build one ("set up a traffic campaign for the autumn
 launch, TWD 500 a day"). It agrees the plan with you first, then creates
-everything paused; you activate it in Analytics → Ads.
+everything paused; you activate it on Tools → Ads.
 
 Publications: ask the agent what went out ("which October posts published,
 failed or are still scheduled?"). It runs `publications --month 2026-10` and
