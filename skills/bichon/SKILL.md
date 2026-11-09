@@ -977,7 +977,7 @@ ad.
 | `ad-product:cutout --brand <id> --id <productId> --file <image> [--label <text>]` | Upload an official cutout (JPEG, PNG or WebP, ≤ 8 MB; at most 12): `{ cutoutId }` |
 | `ad-rule:import --brand <id> --file rule.json [--dry-run]` | Create a rule; the same product, kind and text updates it: `{ ruleId, action }` |
 | `ad-rule:update --brand <id> --id <ruleId> --file patch.json [--dry-run]` | Change or retire a rule |
-| `creative:iterations --brand <id> [--product <productId>]` | Rounds with `status` (`open`, `closed`) and counts per review status |
+| `creative:iterations --brand <id> [--product <productId>]` | `{ iterations, truncated }`: rounds with `status` (`open`, `closed`) and counts per review status; without `--product`, the brand's newest 500 |
 | `creative:iteration:create --brand <id> --file iteration.json [--dry-run]` | Open a round; a repeated name returns the same one: `{ iterationId, action, status }` |
 | `creative:submit --brand <id> --iteration <iterationId> --file creative.json --image <file> [--dry-run]` | Upload the image and submit the creative for review: `{ creativeId, revision: 1, status: "submitted" }`. The image's size is read from the file |
 | `creative:list --brand <id> [--status changes_requested\|submitted\|approved\|rejected] [--iteration <id>] [--limit 1..50] [--out file.json]` | Creatives by status (default `changes_requested`), each with `image` (`url`, `width`, `height`), `prompt`, `onImageText`, `copy` and the `comments` on its current revision |
