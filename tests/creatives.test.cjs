@@ -247,6 +247,18 @@ test('creative:regions writes the image, a numbered overlay, a crop per box and 
   server.reply(() => ok({ echo: true }));
 });
 
+test('a JPEG with an EXIF rotation is refused before upload', async () => {
+  const rotated = path.join(dir, 'rotated.jpg');
+  fs.writeFileSync(rotated, Buffer.from([
+    0xff, 0xd8, 0xff, 0xe1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0, 0, 0x4d, 0x4d, 0x00, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0,
+    0xff, 0xc0, 0x00, 0x11, 0x08, 0x05, 0x46, 0x04, 0x38, 0x03, 0, 0, 0, 0,
+  ]));
+  const result = await call(['creative:submit', '--brand', 'b1', '--iteration', 'i1', '--file', file(CREATIVE), '--image', rotated]);
+  assert.equal(result.code, 1, result.stdout);
+  assert.equal(result.requests.length, 0);
+  assert.match(result.json.error.message, /upright/);
+});
+
 test('creative:regions explains what is missing for an image it cannot decode', async () => {
   const creative = { creativeId: 'c1', revision: 1, image: { url: `${server.url}/image.jpg`, width: 1, height: 1 }, comments: [] };
   server.reply((request) =>

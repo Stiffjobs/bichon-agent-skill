@@ -1042,6 +1042,23 @@ const AD_REVISION_SCHEMA = adBundleSchema(
   ['basedOnRevision', 'prompt', 'onImageText', 'responseNote'],
 );
 
+function exifRotated(bytes, at) {
+  if (bytes.toString('latin1', at + 4, at + 10) !== 'Exif\0\0') return false;
+  const tiff = at + 10;
+  const little = bytes.toString('latin1', tiff, tiff + 2) === 'II';
+  const u16 = (offset) => (little ? bytes.readUInt16LE(offset) : bytes.readUInt16BE(offset));
+  try {
+    const directory = tiff + (little ? bytes.readUInt32LE(tiff + 4) : bytes.readUInt32BE(tiff + 4));
+    for (let index = 0; index < u16(directory); index += 1) {
+      const entry = directory + 2 + index * 12;
+      if (u16(entry) === 0x0112) return u16(entry + 8) > 1;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 // The intrinsic size from the file's header, without an image library.
 function imageDimensions(bytes) {
   if (bytes.length >= 24 && bytes.toString('latin1', 1, 4) === 'PNG') {
@@ -1049,6 +1066,7 @@ function imageDimensions(bytes) {
   }
   if (bytes[0] === 0xff && bytes[1] === 0xd8) {
     let at = 2;
+    let rotated = false;
     while (at + 9 < bytes.length && bytes[at] === 0xff) {
       const marker = bytes[at + 1];
       if (marker === 0xff) {
@@ -1056,8 +1074,9 @@ function imageDimensions(bytes) {
         continue;
       }
       if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
-        return { width: bytes.readUInt16BE(at + 7), height: bytes.readUInt16BE(at + 5) };
+        return { width: bytes.readUInt16BE(at + 7), height: bytes.readUInt16BE(at + 5), rotated };
       }
+      if (marker === 0xe1 && exifRotated(bytes, at)) rotated = true;
       at += 2 + bytes.readUInt16BE(at + 2);
     }
     return null;
@@ -1079,11 +1098,12 @@ async function sendWithImage(parsed, config, kind, route) {
   const upload = readUploadFile(parsed, IMAGE_TYPES, 'a JPEG, PNG or WebP image', 'image');
   const size = imageDimensions(upload.bytes);
   if (!size) throw new CliError('invalid_request', `Could not read the size of ${upload.file}.`);
+  if (size.rotated) throw new CliError('invalid_request', `${upload.file} carries an EXIF rotation. Export it upright.`);
   if (parsed['dry-run']) {
-    return succeed({ valid: true, dryRun: true, bundle: kind, image: { ...size, contentType: upload.contentType, bytes: upload.bytes.byteLength } });
+    return succeed({ valid: true, dryRun: true, bundle: kind, image: { width: size.width, height: size.height, contentType: upload.contentType, bytes: upload.bytes.byteLength } });
   }
   const { key } = await uploadToStorage(config, brandRoute('/ad-review')(parsed), upload);
-  return emit(await api(config, 'POST', route(parsed), { body: { ...bundle, image: { key, ...size } } }));
+  return emit(await api(config, 'POST', route(parsed), { body: { ...bundle, image: { key, width: size.width, height: size.height } } }));
 }
 
 async function addCutout(parsed, config) {
