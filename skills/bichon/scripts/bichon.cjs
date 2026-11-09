@@ -1154,7 +1154,10 @@ function crc32(bytes) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-// 8-bit, non-interlaced PNGs decode here; anything else goes through a tool.
+const ADAM7 = [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]];
+const PNG_DEPTHS = { 0: [1, 2, 4, 8, 16], 2: [8, 16], 3: [1, 2, 4, 8], 4: [8, 16], 6: [8, 16] };
+
+// Every PNG decodes here, to 8-bit RGBA; only other formats need a tool.
 function decodePng(bytes) {
   if (bytes.length < 33 || bytes.toString('latin1', 1, 4) !== 'PNG') return null;
   let at = 8;
@@ -1174,61 +1177,80 @@ function decodePng(bytes) {
     else if (type === 'IEND') break;
     at += 12 + length;
   }
-  if (!header || header.depth !== 8 || header.interlace !== 0) return null;
-  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[header.color];
-  if (!channels || (header.color === 3 && !palette)) return null;
-  const { width, height, color } = header;
-  const raw = zlib.inflateSync(Buffer.concat(data));
-  const stride = width * channels;
-  if (raw.length < (stride + 1) * height) return null;
+  if (!header || !(PNG_DEPTHS[header.color] || []).includes(header.depth) || header.interlace > 1) return null;
+  if (header.color === 3 && !palette) return null;
+  const { width, height, depth, color, interlace } = header;
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[color];
+  const pixelBytes = Math.max(1, (channels * depth) >> 3);
+  let raw;
+  try {
+    raw = zlib.inflateSync(Buffer.concat(data));
+  } catch {
+    return null;
+  }
   const rgba = Buffer.alloc(width * height * 4);
-  const line = Buffer.alloc(stride);
-  const previous = Buffer.alloc(stride);
-  for (let y = 0; y < height; y += 1) {
-    const filter = raw[y * (stride + 1)];
-    const start = y * (stride + 1) + 1;
-    for (let x = 0; x < stride; x += 1) {
-      const left = x >= channels ? line[x - channels] : 0;
-      const up = previous[x];
-      const corner = x >= channels ? previous[x - channels] : 0;
-      let predictor = 0;
-      if (filter === 1) predictor = left;
-      else if (filter === 2) predictor = up;
-      else if (filter === 3) predictor = (left + up) >> 1;
-      else if (filter === 4) {
-        const p = left + up - corner;
-        const pa = Math.abs(p - left);
-        const pb = Math.abs(p - up);
-        const pc = Math.abs(p - corner);
-        predictor = pa <= pb && pa <= pc ? left : pb <= pc ? up : corner;
+  const sampleOf = (line, index) => {
+    if (depth === 16) return (line[index * 2] << 8) | line[index * 2 + 1];
+    if (depth === 8) return line[index];
+    const bit = index * depth;
+    return (line[bit >> 3] >> (8 - depth - (bit & 7))) & ((1 << depth) - 1);
+  };
+  const to8Bit = (sample) => (depth === 16 ? sample >> 8 : depth === 8 ? sample : Math.round((sample * 255) / ((1 << depth) - 1)));
+  const key = (index) => transparency.readUInt16BE(index * 2);
+  let offset = 0;
+  for (const [startX, startY, stepX, stepY] of interlace === 1 ? ADAM7 : [[0, 0, 1, 1]]) {
+    const columns = Math.ceil((width - startX) / stepX);
+    const rows = Math.ceil((height - startY) / stepY);
+    if (columns <= 0 || rows <= 0) continue;
+    const stride = Math.ceil((columns * channels * depth) / 8);
+    if (raw.length < offset + (stride + 1) * rows) return null;
+    const line = Buffer.alloc(stride);
+    const previous = Buffer.alloc(stride);
+    for (let row = 0; row < rows; row += 1) {
+      const filter = raw[offset];
+      for (let x = 0; x < stride; x += 1) {
+        const left = x >= pixelBytes ? line[x - pixelBytes] : 0;
+        const up = previous[x];
+        const corner = x >= pixelBytes ? previous[x - pixelBytes] : 0;
+        let predictor = 0;
+        if (filter === 1) predictor = left;
+        else if (filter === 2) predictor = up;
+        else if (filter === 3) predictor = (left + up) >> 1;
+        else if (filter === 4) {
+          const p = left + up - corner;
+          const pa = Math.abs(p - left);
+          const pb = Math.abs(p - up);
+          const pc = Math.abs(p - corner);
+          predictor = pa <= pb && pa <= pc ? left : pb <= pc ? up : corner;
+        }
+        line[x] = (raw[offset + 1 + x] + predictor) & 0xff;
       }
-      line[x] = (raw[start + x] + predictor) & 0xff;
-    }
-    for (let x = 0; x < width; x += 1) {
-      const from = x * channels;
-      const to = (y * width + x) * 4;
-      if (color === 3) {
-        const index = line[from];
-        rgba[to] = palette[index * 3];
-        rgba[to + 1] = palette[index * 3 + 1];
-        rgba[to + 2] = palette[index * 3 + 2];
-        rgba[to + 3] = transparency && index < transparency.length ? transparency[index] : 255;
-      } else if (color === 0 || color === 4) {
-        rgba[to] = rgba[to + 1] = rgba[to + 2] = line[from];
-        const keyed = color === 0 && transparency && transparency.readUInt16BE(0) === line[from];
-        rgba[to + 3] = color === 4 ? line[from + 1] : keyed ? 0 : 255;
-      } else {
-        rgba[to] = line[from];
-        rgba[to + 1] = line[from + 1];
-        rgba[to + 2] = line[from + 2];
-        const keyed = color === 2 && transparency
-          && transparency.readUInt16BE(0) === line[from]
-          && transparency.readUInt16BE(2) === line[from + 1]
-          && transparency.readUInt16BE(4) === line[from + 2];
-        rgba[to + 3] = color === 6 ? line[from + 3] : keyed ? 0 : 255;
+      offset += stride + 1;
+      for (let column = 0; column < columns; column += 1) {
+        const to = ((startY + row * stepY) * width + startX + column * stepX) * 4;
+        const base = column * channels;
+        const first = sampleOf(line, base);
+        if (color === 3) {
+          rgba[to] = palette[first * 3];
+          rgba[to + 1] = palette[first * 3 + 1];
+          rgba[to + 2] = palette[first * 3 + 2];
+          rgba[to + 3] = transparency && first < transparency.length ? transparency[first] : 255;
+        } else if (color === 0 || color === 4) {
+          rgba[to] = rgba[to + 1] = rgba[to + 2] = to8Bit(first);
+          const keyed = color === 0 && transparency && key(0) === first;
+          rgba[to + 3] = color === 4 ? to8Bit(sampleOf(line, base + 1)) : keyed ? 0 : 255;
+        } else {
+          const second = sampleOf(line, base + 1);
+          const third = sampleOf(line, base + 2);
+          rgba[to] = to8Bit(first);
+          rgba[to + 1] = to8Bit(second);
+          rgba[to + 2] = to8Bit(third);
+          const keyed = color === 2 && transparency && key(0) === first && key(1) === second && key(2) === third;
+          rgba[to + 3] = color === 6 ? to8Bit(sampleOf(line, base + 3)) : keyed ? 0 : 255;
+        }
       }
+      line.copy(previous);
     }
-    line.copy(previous);
   }
   return { width, height, rgba };
 }

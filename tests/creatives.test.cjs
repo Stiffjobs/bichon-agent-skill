@@ -266,6 +266,63 @@ test('creative:regions keeps PNG color-key transparency', async () => {
   server.reply(() => ok({ echo: true }));
 });
 
+// An unfiltered PNG in any of the layouts the decoder has to read.
+function layoutPng({ width, height, depth, interlace }) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = depth;
+  header[9] = 2;
+  header[12] = interlace ? 1 : 0;
+  const passes = interlace
+    ? [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]]
+    : [[0, 0, 1, 1]];
+  const raw = [];
+  for (const [startX, startY, stepX, stepY] of passes) {
+    const columns = Math.ceil((width - startX) / stepX);
+    const rows = Math.ceil((height - startY) / stepY);
+    if (columns <= 0 || rows <= 0) continue;
+    for (let row = 0; row < rows; row += 1) {
+      raw.push(0);
+      for (let column = 0; column < columns; column += 1) {
+        const x = startX + column * stepX;
+        const sample = x < width / 2 ? [10, 200, 30] : [200, 40, 120];
+        for (const value of sample) raw.push(...(depth === 16 ? [value, 7] : [value]));
+      }
+    }
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', zlib.deflateSync(Buffer.from(raw))),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+test('creative:regions reads interlaced and 16-bit PNGs with no image tool', async () => {
+  for (const [name, layout] of [['interlaced', { width: 20, height: 16, depth: 8, interlace: true }], ['deep', { width: 20, height: 16, depth: 16 }]]) {
+    const creative = {
+      creativeId: 'c1',
+      revision: 1,
+      image: { url: `${server.url}/${name}.png`, width: 20, height: 16 },
+      comments: [{ author: 'Rae', decision: null, body: '', regions: [{ number: 1, note: 'n', normalized: { x: 0, y: 0, width: 1, height: 1 }, pixels: {} }] }],
+    };
+    server.reply((request) =>
+      request.path === `/${name}.png` ? { status: 200, contentType: 'image/png', body: layoutPng(layout) } : ok(creative),
+    );
+    const out = path.join(dir, name);
+    const result = await call(['creative:regions', '--brand', 'b1', '--id', 'c1', '--out', out], { PATH: '' });
+    assert.equal(result.code, 0, result.stdout);
+    const raw = readPng(path.join(out, 'region-1.png')).pixels();
+    const at = (x, y) => [...raw.subarray(y * 81 + 1 + x * 4, y * 81 + 5 + x * 4)];
+    for (const y of [0, 7, 15]) {
+      assert.deepEqual(at(2, y), [10, 200, 30, 255], `${name} left at ${y}`);
+      assert.deepEqual(at(17, y), [200, 40, 120, 255], `${name} right at ${y}`);
+    }
+  }
+  server.reply(() => ok({ echo: true }));
+});
+
 test('a JPEG with an EXIF rotation is refused before upload', async () => {
   const rotated = path.join(dir, 'rotated.jpg');
   fs.writeFileSync(rotated, Buffer.from([
