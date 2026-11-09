@@ -1187,12 +1187,17 @@ function decodePng(bytes) {
         rgba[to + 3] = transparency && index < transparency.length ? transparency[index] : 255;
       } else if (color === 0 || color === 4) {
         rgba[to] = rgba[to + 1] = rgba[to + 2] = line[from];
-        rgba[to + 3] = color === 4 ? line[from + 1] : 255;
+        const keyed = color === 0 && transparency && transparency.readUInt16BE(0) === line[from];
+        rgba[to + 3] = color === 4 ? line[from + 1] : keyed ? 0 : 255;
       } else {
         rgba[to] = line[from];
         rgba[to + 1] = line[from + 1];
         rgba[to + 2] = line[from + 2];
-        rgba[to + 3] = color === 6 ? line[from + 3] : 255;
+        const keyed = color === 2 && transparency
+          && transparency.readUInt16BE(0) === line[from]
+          && transparency.readUInt16BE(2) === line[from + 1]
+          && transparency.readUInt16BE(4) === line[from + 2];
+        rgba[to + 3] = color === 6 ? line[from + 3] : keyed ? 0 : 255;
       }
     }
     line.copy(previous);

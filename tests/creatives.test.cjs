@@ -44,7 +44,7 @@ function chunk(type, body) {
 
 // An opaque RGB PNG whose left half is one color and right half another,
 // using a different scanline filter per row.
-function testPng(width, height) {
+function testPng(width, height, transparentKey) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
@@ -69,6 +69,7 @@ function testPng(width, height) {
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', header),
+    ...(transparentKey ? [chunk('tRNS', Buffer.from(transparentKey.flatMap((value) => [0, value])))] : []),
     chunk('IDAT', zlib.deflateSync(raw)),
     chunk('IEND', Buffer.alloc(0)),
   ]);
@@ -244,6 +245,24 @@ test('creative:regions writes the image, a numbered overlay, a crop per box and 
   const at = (x, y) => [...raw.subarray(y * 401 + 1 + x * 4, y * 401 + 4 + x * 4)];
   assert.deepEqual(at(60, 20), [230, 30, 90], 'the top edge of box 1');
   assert.deepEqual(at(99, 79), [200, 40, 120], 'an untouched pixel');
+  server.reply(() => ok({ echo: true }));
+});
+
+test('creative:regions keeps PNG color-key transparency', async () => {
+  const creative = {
+    creativeId: 'c1',
+    revision: 1,
+    image: { url: `${server.url}/key.png`, width: 100, height: 80 },
+    comments: [{ author: 'Rae', decision: null, body: '', regions: [{ number: 1, note: 'n', normalized: { x: 0, y: 0, width: 0.2, height: 0.2 }, pixels: {} }] }],
+  };
+  server.reply((request) =>
+    request.path === '/key.png' ? { status: 200, contentType: 'image/png', body: testPng(100, 80, [10, 200, 30]) } : ok(creative),
+  );
+  const out = path.join(dir, 'keyed');
+  const result = await call(['creative:regions', '--brand', 'b1', '--id', 'c1', '--out', out]);
+  assert.equal(result.code, 0, result.stdout);
+  const crop = readPng(path.join(out, 'region-1.png')).pixels();
+  assert.deepEqual([...crop.subarray(1, 5)], [10, 200, 30, 0]);
   server.reply(() => ok({ echo: true }));
 });
 
