@@ -1044,7 +1044,10 @@ const AD_REVISION_SCHEMA = adBundleSchema(
 
 function exifRotated(bytes, at) {
   if (bytes.toString('latin1', at + 4, at + 10) !== 'Exif\0\0') return false;
-  const tiff = at + 10;
+  return tiffRotated(bytes, at + 10);
+}
+
+function tiffRotated(bytes, tiff) {
   const little = bytes.toString('latin1', tiff, tiff + 2) === 'II';
   const u16 = (offset) => (little ? bytes.readUInt16LE(offset) : bytes.readUInt16BE(offset));
   try {
@@ -1060,9 +1063,33 @@ function exifRotated(bytes, at) {
 }
 
 // The intrinsic size from the file's header, without an image library.
+function pngRotated(bytes) {
+  let at = 8;
+  while (at + 8 <= bytes.length) {
+    const type = bytes.toString('latin1', at + 4, at + 8);
+    if (type === 'IDAT') return false;
+    if (type === 'eXIf') return tiffRotated(bytes, at + 8);
+    at += 12 + bytes.readUInt32BE(at);
+  }
+  return false;
+}
+
+function webpRotated(bytes) {
+  let at = 12;
+  while (at + 8 <= bytes.length) {
+    const size = bytes.readUInt32LE(at + 4);
+    if (bytes.toString('latin1', at, at + 4) === 'EXIF') {
+      const start = at + 8;
+      return tiffRotated(bytes, bytes.toString('latin1', start, start + 6) === 'Exif\0\0' ? start + 6 : start);
+    }
+    at += 8 + size + (size & 1);
+  }
+  return false;
+}
+
 function imageDimensions(bytes) {
   if (bytes.length >= 24 && bytes.toString('latin1', 1, 4) === 'PNG') {
-    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), rotated: pngRotated(bytes) };
   }
   if (bytes[0] === 0xff && bytes[1] === 0xd8) {
     let at = 2;
@@ -1083,12 +1110,13 @@ function imageDimensions(bytes) {
   }
   if (bytes.length >= 30 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') {
     const chunk = bytes.toString('latin1', 12, 16);
-    if (chunk === 'VP8 ') return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+    const rotated = webpRotated(bytes);
+    if (chunk === 'VP8 ') return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff, rotated };
     if (chunk === 'VP8L') {
       const bits = bytes.readUInt32LE(21);
-      return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+      return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1, rotated };
     }
-    if (chunk === 'VP8X') return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1 };
+    if (chunk === 'VP8X') return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1, rotated };
   }
   return null;
 }
