@@ -3,6 +3,22 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.16.0 (2026-11-09)
+
+- Paid-ad creative review. `ad-book` reads a brand's products, cutouts and
+  rules; `ad-product:import`, `ad-product:update`, `ad-product:cutout`,
+  `ad-rule:import` and `ad-rule:update` write them.
+- `creative:iteration:create` and `creative:iterations` manage a product's
+  rounds; `creative:submit --image <file>` uploads a generated image and
+  submits it for review; `creative:list` and `creative:get` pull the comments
+  on the current revision with each region in normalized and pixel
+  coordinates; `creative:revise` sends the next version with a response note.
+- `creative:regions --out <dir>` writes the reviewed image, an overlay with
+  every box numbered, a crop per box and `regions.json`, so a revise run can
+  change exactly the marked areas and keep the rest. PNGs need nothing else;
+  JPEG and WebP use macOS `sips` or ImageMagick.
+- Needs the matching app deploy: these commands 404 on an older one.
+
 ## 0.15.0 (2026-10-30)
 
 - `ads:accounts --brand <id>` lists the brand's connected ad accounts, and

@@ -33,7 +33,7 @@ async function startServer(handler = () => ({ status: 200, body: { ok: true, dat
       requests.push(request);
       const reply = respond(request);
       res.writeHead(reply.status, { 'Content-Type': reply.contentType || 'application/json' });
-      res.end(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body));
+      res.end(typeof reply.body === 'string' || Buffer.isBuffer(reply.body) ? reply.body : JSON.stringify(reply.body));
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

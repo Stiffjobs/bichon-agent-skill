@@ -16,9 +16,12 @@ description: >
   brand's Meta ads work: reads ad
   performance (spend, clicks, results by campaign, ad set or ad) to report to
   the manager, and builds Meta ad campaigns, ad sets, creatives and ads for
-  the brand, uploading the ad images and videos, all created paused.
+  the brand, uploading the ad images and videos, all created paused. Keeps
+  the brand book of products and rules, uploads generated ad creatives for
+  review, and revises them against the reviewer's comments, changing only the
+  image areas they marked.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-10-30
+last-updated: 2026-11-09
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -106,7 +109,8 @@ code 1 on any failure. The API key is never printed.
 
 `--dry-run` runs only the local validation and sends nothing.
 
-The `ads:*` commands are listed under Ads.
+The `ads:*` commands are listed under Ads, the `ad-book` and `creative:*`
+commands under Creative review.
 
 ## Intake
 
@@ -954,6 +958,72 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`,
 
 Meta ids (`--campaign`, `--adset`, `--ad`, `--id`) are digit strings.
 
+## Creative review
+
+Paid-ad creatives are reviewed in the dashboard the way campaign posts are.
+You generate each image on this machine and upload it; the brand's client or
+a manager reviews it in the app, and you pull their comments and revise.
+
+The hierarchy is brand, product, iteration (a named round per product, such
+as `批次3` or `F0 variations`), creatives, then revisions (v1, v2, v3 of one
+creative). None of it touches Meta: a creative here is a review item, not an
+ad.
+
+| Command | What it does |
+|---|---|
+| `ad-book --brand <id>` | The brand book: `{ products, rules }`. Each product has `name`, `bannedNames`, `pageUrl`, `claimLabels`, `canSay`, `cannotSay`, `listingCopy` and `cutouts` (`{ url, label, status }`, signed for an hour); each rule has `kind`, `text`, `acceptedExamples`, `rejectedExamples`, `status`, `productId` (null for brand-wide), who set it and when |
+| `ad-product:import --brand <id> --file product.json [--dry-run]` | Create a product, or update the one with that canonical name; only the fields sent change: `{ productId, action }` |
+| `ad-product:update --brand <id> --id <productId> --file patch.json [--dry-run]` | Change some fields of a product by id, its name included |
+| `ad-product:cutout --brand <id> --id <productId> --file <image> [--label <text>]` | Upload an official cutout (JPEG, PNG or WebP, ≤ 8 MB; at most 12): `{ cutoutId }` |
+| `ad-rule:import --brand <id> --file rule.json [--dry-run]` | Create a rule; the same product, kind and text updates it: `{ ruleId, action }` |
+| `ad-rule:update --brand <id> --id <ruleId> --file patch.json [--dry-run]` | Change or retire a rule |
+| `creative:iterations --brand <id> [--product <productId>]` | Rounds with `status` (`open`, `closed`) and counts per review status |
+| `creative:iteration:create --brand <id> --file iteration.json [--dry-run]` | Open a round; a repeated name returns the same one: `{ iterationId, action, status }` |
+| `creative:submit --brand <id> --iteration <iterationId> --file creative.json --image <file> [--dry-run]` | Upload the image and submit the creative for review: `{ creativeId, revision: 1, status: "submitted" }`. The image's size is read from the file |
+| `creative:list --brand <id> [--status changes_requested\|submitted\|approved\|rejected] [--iteration <id>] [--limit 1..50] [--out file.json]` | Creatives by status (default `changes_requested`), each with `image` (`url`, `width`, `height`), `prompt`, `onImageText`, `copy` and the `comments` on its current revision |
+| `creative:get --brand <id> --id <creativeId>` | One creative in the same shape |
+| `creative:regions --brand <id> --id <creativeId> --out <dir>` | Write the image, an overlay with every box numbered, one crop per box and `regions.json` to `<dir>` |
+| `creative:revise --brand <id> --id <creativeId> --file revision.json --image <file> [--dry-run]` | Upload the new version and send it back to review: `{ creativeId, revision, status: "submitted" }` |
+
+**Before generating.** Read `ad-book` and follow it. Use the product's
+canonical name and never a banned one. Use each claim label as written and
+never its `avoid` wording. Stay inside `canSay`, respect each entry's `note`
+(the evidence it depends on) and never write anything in `cannotSay`. Apply
+every active rule that is brand-wide or names this product, reading its
+accepted and rejected examples. Use the official cutouts for the product.
+
+**Submitting.** One `utmCreative` per creative, unique in the brand, for
+example `fullerene-f0-line-v1` (a 409 returns the existing `creativeId` in
+`details`). The creative runs the product's listing copy; set `creative.copy`
+only for the fields that differ for this creative.
+
+**Revising.** Work through `creative:list`, then for each creative:
+
+1. Run `creative:regions`. Read `regions.json` and look at `overlay.png`.
+2. Each region has a `number`, the reviewer's `note`, its coordinates
+   (`normalized` 0 to 1, and `pixels` on this image) and a `crop` file. Numbers
+   match the boxes the reviewer sees.
+3. Generate from the previous image (`image.file`) as the reference. **Change
+   only what each note asks for, inside that box, and keep the rest of the
+   image as it is:** same layout, product, people, type and colors outside the
+   boxes. Do not restyle or improve anything nobody asked about.
+4. `generalComments` apply to the whole creative and may be about the copy.
+   Change the image only if the comment is about the image. A copy change
+   goes in the revision's `copy` (send `null` to go back to the listing copy;
+   leave it out to keep the current override).
+5. Submit with `creative:revise`, `basedOnRevision` set to the `revision` you
+   pulled, and a `responseNote` that answers each box by number, including
+   anything you left alone and why.
+
+A rejected creative is final: do not revise or resubmit it. An approved one
+needs nothing. A 409 on a revise means the creative moved on or the round
+closed; pull it again and tell the manager rather than retrying.
+
+**Importing a brand book.** Use `ad-product:import` per product, then
+`ad-rule:import` per rule, with `source` and `setOn` when the rule predates
+the import (who decided it, and the day). Show the manager what you are about
+to import before sending it.
+
 ## Bundle formats
 
 `schema` prints the exact JSON Schemas. Evidence and claim references are
@@ -1218,6 +1288,103 @@ Personas file (`personas:set`); the server assigns the keys `p1`..`p5`:
 }
 ```
 
+### Creative review bundles
+
+A product (`ad-product:import`; `ad-product:update` takes
+`{ "format": "bichon-ad-product-patch/v1", "agent": …, "patch": { any of these fields } }`):
+
+```json
+{
+  "format": "bichon-ad-product/v1",
+  "agent": { "name": "claude-code" },
+  "product": {
+    "name": "富勒烯抗老精華",
+    "bannedNames": ["富勒烯精華乳"],
+    "pageUrl": "https://example.com/products/fullerene",
+    "claimLabels": [
+      { "ingredient": "維生素原B5", "label": "保濕舒緩", "shortLabel": "保水舒緩", "avoid": ["吸濕保水"] }
+    ],
+    "canSay": [{ "topic": "富勒烯", "text": "日常抗氧化保養", "note": "原料來源須可證明" }],
+    "cannotSay": [{ "text": "治療敏感", "note": "化粧品不得宣稱醫療效能" }],
+    "listingCopy": {
+      "primaryText": "當進階抗老遇上溫柔穩膚",
+      "headline": "敏弱肌也能抗老",
+      "description": "精華乳質地",
+      "callToAction": "SHOP_NOW",
+      "link": "https://example.com/products/fullerene",
+      "utmTemplate": "utm_source=facebook&utm_medium=ad&utm_campaign=evg"
+    }
+  }
+}
+```
+
+The tracked link adds `utm_creative=<utmCreative>` to the template per
+creative, replacing any placeholder the template has there.
+
+A rule (`ad-rule:import`; `ad-rule:update` takes
+`{ "format": "bichon-ad-rule-patch/v1", "agent": …, "patch": { any of these fields } }`):
+
+```json
+{
+  "format": "bichon-ad-rule/v1",
+  "agent": { "name": "claude-code" },
+  "rule": {
+    "kind": "wording",
+    "text": "大字主標沒有任何標點",
+    "acceptedExamples": ["臉變得又潤又彈"],
+    "rejectedExamples": ["抗老，不用再瓶瓶罐罐"],
+    "source": "品牌方",
+    "setOn": "2026-10-15"
+  }
+}
+```
+
+`kind` is `visual`, `wording` or `compliance`; add `productId` for a rule
+about one product.
+
+An iteration:
+
+```json
+{
+  "format": "bichon-ad-iteration/v1",
+  "agent": { "name": "claude-code" },
+  "productId": "<productId>",
+  "name": "批次3",
+  "note": "F0 and F9, hand-held and LINE formats"
+}
+```
+
+A creative (`creative:submit` adds the image):
+
+```json
+{
+  "format": "bichon-ad-creative/v1",
+  "agent": { "name": "claude-code" },
+  "creative": {
+    "title": "F0 不喜歡擦面霜｜手拿",
+    "angle": "不喜歡擦面霜但想要潤亮",
+    "hook": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的",
+    "format": "手拿",
+    "utmCreative": "fullerene-f0-hand-v1"
+  },
+  "prompt": "The full prompt the image was generated from",
+  "onImageText": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的\n精華乳質地的富勒烯抗老精華"
+}
+```
+
+A revision (`creative:revise` adds the image):
+
+```json
+{
+  "format": "bichon-ad-revision/v1",
+  "agent": { "name": "claude-code" },
+  "basedOnRevision": 1,
+  "prompt": "The prompt this version was generated from",
+  "onImageText": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的\n精華乳質地的富勒烯抗老精華",
+  "responseNote": "1: enlarged the bottle only. 2: changed the label to 保濕舒緩. Everything else is unchanged."
+}
+```
+
 ## Bounds
 
 The helper checks these before sending and names the offending path.
@@ -1225,6 +1392,10 @@ The helper checks these before sending and names the offending path.
 | Field | Limit |
 |---|---|
 | `posts` | ≤ 5 (0 allowed with `noPostsReason`) |
+| Ad product | `name` 100 chars; ≤ 30 `bannedNames`; ≤ 40 `claimLabels`; ≤ 60 each of `canSay` and `cannotSay`, `text` and `note` 1000 chars; primary text 5000 chars, headline and description 255 |
+| Ad rule | `text` 2000 chars; ≤ 20 accepted and 20 rejected examples of 500 chars |
+| Creative | `title` 200, `angle` and `hook` 300, `format` and `utmCreative` 100 chars; `prompt` 20000, `onImageText` 4000 chars; ≤ 20 revisions and 200 per iteration |
+| Revision `responseNote` | 2000 chars, required |
 | `title` / `hook` / `treatment` | 200 / 1000 / 2000 chars |
 | `audienceBenefit` / `limitation` / `coreMessage` | 300 chars each |
 | `whyNow` | 2000 chars |

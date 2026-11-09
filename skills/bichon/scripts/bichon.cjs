@@ -4,6 +4,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const zlib = require('zlib');
+const { execFileSync } = require('child_process');
 
 const DEFAULT_BASE_URL = 'https://intent-crab-142.convex.site';
 const API_PREFIX = '/agent/v1';
@@ -957,7 +959,418 @@ function adBundles() {
   ]);
 }
 
+const CREATIVE_STATUSES = ['changes_requested', 'submitted', 'approved', 'rejected'];
+const adCopySchema = strictObject({
+  primaryText: str(5000),
+  headline: str(255),
+  description: str(255),
+  callToAction: str(50),
+  link: str(2000),
+});
+const adClaimEntrySchema = strictObject({ topic: str(100, 0), text: str(1000), note: str(1000, 0) }, ['text']);
+const adProductFields = {
+  name: str(100),
+  bannedNames: list(str(100), 30),
+  pageUrl: str(2000, 0),
+  claimLabels: list(
+    strictObject({ ingredient: str(100), label: str(200), shortLabel: str(100, 0), avoid: list(str(200), 10) }, ['ingredient', 'label', 'avoid']),
+    40,
+  ),
+  canSay: list(adClaimEntrySchema, 60),
+  cannotSay: list(adClaimEntrySchema, 60),
+  listingCopy: strictObject({
+    primaryText: str(5000, 0),
+    headline: str(255, 0),
+    description: str(255, 0),
+    callToAction: str(50, 0),
+    link: str(2000, 0),
+    utmTemplate: str(1000, 0),
+  }),
+};
+const adRuleFields = {
+  productId: str(64, 0),
+  kind: { enum: ['visual', 'wording', 'compliance'] },
+  text: str(2000),
+  acceptedExamples: list(str(500), 20),
+  rejectedExamples: list(str(500), 20),
+  source: str(200, 0),
+  setOn: { ...str(10), pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+  status: { enum: ['active', 'retired'] },
+};
+const pickFields = (fields, names) => Object.fromEntries(Object.entries(fields).filter(([name]) => names.includes(name)));
+const adBundleSchema = (id, title, properties, required) => ({
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: `urn:bichon:schema:${id}:v1`,
+  title,
+  ...strictObject({ format: { const: `bichon-${id}/v1` }, agent: agentSchema, ...properties }, ['format', 'agent', ...required]),
+});
+const AD_PRODUCT_SCHEMA = adBundleSchema('ad-product', 'AdProduct', { product: strictObject(adProductFields, ['name']) }, ['product']);
+const AD_PRODUCT_PATCH_SCHEMA = adBundleSchema('ad-product-patch', 'AdProductPatch', { patch: strictObject(adProductFields) }, ['patch']);
+const AD_RULE_SCHEMA = adBundleSchema('ad-rule', 'AdRule', { rule: strictObject(adRuleFields, ['kind', 'text']) }, ['rule']);
+const AD_RULE_PATCH_SCHEMA = adBundleSchema('ad-rule-patch', 'AdRulePatch', { patch: strictObject(adRuleFields) }, ['patch']);
+const AD_ITERATION_SCHEMA = adBundleSchema('ad-iteration', 'AdIteration', { productId: str(64), name: str(100), note: str(2000, 0) }, ['productId', 'name']);
+const AD_CREATIVE_SCHEMA = adBundleSchema(
+  'ad-creative',
+  'AdCreative',
+  {
+    creative: strictObject(
+      {
+        title: str(200),
+        angle: str(300),
+        hook: str(300),
+        format: str(100),
+        utmCreative: { ...str(100), pattern: '^[a-z0-9][a-z0-9._-]*$' },
+        copy: adCopySchema,
+      },
+      ['title', 'angle', 'hook', 'format', 'utmCreative'],
+    ),
+    prompt: str(20000),
+    onImageText: str(4000, 0),
+  },
+  ['creative', 'prompt', 'onImageText'],
+);
+const AD_REVISION_SCHEMA = adBundleSchema(
+  'ad-revision',
+  'AdRevision',
+  {
+    basedOnRevision: { type: 'integer', minimum: 1 },
+    prompt: str(20000),
+    onImageText: str(4000, 0),
+    responseNote: str(2000),
+    copy: { ...adCopySchema, type: ['object', 'null'] },
+  },
+  ['basedOnRevision', 'prompt', 'onImageText', 'responseNote'],
+);
+
+// The intrinsic size from the file's header, without an image library.
+function imageDimensions(bytes) {
+  if (bytes.length >= 24 && bytes.toString('latin1', 1, 4) === 'PNG') {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let at = 2;
+    while (at + 9 < bytes.length && bytes[at] === 0xff) {
+      const marker = bytes[at + 1];
+      if (marker === 0xff) {
+        at += 1;
+        continue;
+      }
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return { width: bytes.readUInt16BE(at + 7), height: bytes.readUInt16BE(at + 5) };
+      }
+      at += 2 + bytes.readUInt16BE(at + 2);
+    }
+    return null;
+  }
+  if (bytes.length >= 30 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') {
+    const chunk = bytes.toString('latin1', 12, 16);
+    if (chunk === 'VP8 ') return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+    if (chunk === 'VP8L') {
+      const bits = bytes.readUInt32LE(21);
+      return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+    }
+    if (chunk === 'VP8X') return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1 };
+  }
+  return null;
+}
+
+async function sendWithImage(parsed, config, kind, route) {
+  const bundle = loadBundle(parsed, kind);
+  const upload = readUploadFile(parsed, IMAGE_TYPES, 'a JPEG, PNG or WebP image', 'image');
+  const size = imageDimensions(upload.bytes);
+  if (!size) throw new CliError('invalid_request', `Could not read the size of ${upload.file}.`);
+  if (parsed['dry-run']) {
+    return succeed({ valid: true, dryRun: true, bundle: kind, image: { ...size, contentType: upload.contentType, bytes: upload.bytes.byteLength } });
+  }
+  const { key } = await uploadToStorage(config, brandRoute('/ad-review')(parsed), upload);
+  return emit(await api(config, 'POST', route(parsed), { body: { ...bundle, image: { key, ...size } } }));
+}
+
+async function addCutout(parsed, config) {
+  const route = productRoute('/cutouts')(parsed);
+  const upload = readUploadFile(parsed, IMAGE_TYPES, 'a JPEG, PNG or WebP image');
+  const { key } = await uploadToStorage(config, route, upload);
+  const label = optionalOption(parsed, 'label') || path.basename(upload.file);
+  return emit(await api(config, 'POST', route, { body: { key, label } }));
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let bit = 0; bit < 8; bit += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+// 8-bit, non-interlaced PNGs decode here; anything else goes through a tool.
+function decodePng(bytes) {
+  if (bytes.length < 33 || bytes.toString('latin1', 1, 4) !== 'PNG') return null;
+  let at = 8;
+  let header = null;
+  let palette = null;
+  let transparency = null;
+  const data = [];
+  while (at + 8 <= bytes.length) {
+    const length = bytes.readUInt32BE(at);
+    const type = bytes.toString('latin1', at + 4, at + 8);
+    const body = bytes.subarray(at + 8, at + 8 + length);
+    if (type === 'IHDR') {
+      header = { width: body.readUInt32BE(0), height: body.readUInt32BE(4), depth: body[8], color: body[9], interlace: body[12] };
+    } else if (type === 'PLTE') palette = body;
+    else if (type === 'tRNS') transparency = body;
+    else if (type === 'IDAT') data.push(body);
+    else if (type === 'IEND') break;
+    at += 12 + length;
+  }
+  if (!header || header.depth !== 8 || header.interlace !== 0) return null;
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[header.color];
+  if (!channels || (header.color === 3 && !palette)) return null;
+  const { width, height, color } = header;
+  const raw = zlib.inflateSync(Buffer.concat(data));
+  const stride = width * channels;
+  if (raw.length < (stride + 1) * height) return null;
+  const rgba = Buffer.alloc(width * height * 4);
+  const line = Buffer.alloc(stride);
+  const previous = Buffer.alloc(stride);
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[y * (stride + 1)];
+    const start = y * (stride + 1) + 1;
+    for (let x = 0; x < stride; x += 1) {
+      const left = x >= channels ? line[x - channels] : 0;
+      const up = previous[x];
+      const corner = x >= channels ? previous[x - channels] : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = up;
+      else if (filter === 3) predictor = (left + up) >> 1;
+      else if (filter === 4) {
+        const p = left + up - corner;
+        const pa = Math.abs(p - left);
+        const pb = Math.abs(p - up);
+        const pc = Math.abs(p - corner);
+        predictor = pa <= pb && pa <= pc ? left : pb <= pc ? up : corner;
+      }
+      line[x] = (raw[start + x] + predictor) & 0xff;
+    }
+    for (let x = 0; x < width; x += 1) {
+      const from = x * channels;
+      const to = (y * width + x) * 4;
+      if (color === 3) {
+        const index = line[from];
+        rgba[to] = palette[index * 3];
+        rgba[to + 1] = palette[index * 3 + 1];
+        rgba[to + 2] = palette[index * 3 + 2];
+        rgba[to + 3] = transparency && index < transparency.length ? transparency[index] : 255;
+      } else if (color === 0 || color === 4) {
+        rgba[to] = rgba[to + 1] = rgba[to + 2] = line[from];
+        rgba[to + 3] = color === 4 ? line[from + 1] : 255;
+      } else {
+        rgba[to] = line[from];
+        rgba[to + 1] = line[from + 1];
+        rgba[to + 2] = line[from + 2];
+        rgba[to + 3] = color === 6 ? line[from + 3] : 255;
+      }
+    }
+    line.copy(previous);
+  }
+  return { width, height, rgba };
+}
+
+function pngChunk(type, body) {
+  const head = Buffer.alloc(4);
+  head.writeUInt32BE(body.length);
+  const named = Buffer.concat([Buffer.from(type, 'latin1'), body]);
+  const tail = Buffer.alloc(4);
+  tail.writeUInt32BE(crc32(named));
+  return Buffer.concat([head, named, tail]);
+}
+
+function encodePng({ width, height, rgba }) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    rgba.copy(raw, y * (width * 4 + 1) + 1, y * width * 4, (y + 1) * width * 4);
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+// JPEG and WebP need a decoder; macOS has sips, elsewhere ImageMagick.
+function convertToPng(file, directory) {
+  const target = path.join(directory, '.decoded.png');
+  const tools = [
+    ['sips', ['-s', 'format', 'png', file, '--out', target]],
+    ['magick', [file, target]],
+    ['convert', [file, target]],
+  ];
+  for (const [command, args] of tools) {
+    try {
+      execFileSync(command, args, { stdio: 'ignore' });
+      const decoded = decodePng(fs.readFileSync(target));
+      fs.rmSync(target, { force: true });
+      if (decoded) return decoded;
+    } catch {
+      fs.rmSync(target, { force: true });
+    }
+  }
+  throw new CliError(
+    'image_tool_missing',
+    `Could not decode ${path.basename(file)}. Install ImageMagick (macOS sips also works), or upload creatives as 8-bit PNG.`,
+  );
+}
+
+const DIGITS = ['111101101101111', '010110010010111', '111001111100111', '111001111001111', '101101111001001', '111100111001111', '111100111101111', '111001010010010', '111101111101111', '111101111001111'];
+
+function fillRect(image, left, top, width, height, [r, g, b]) {
+  const right = Math.min(left + width, image.width);
+  const bottom = Math.min(top + height, image.height);
+  for (let y = Math.max(top, 0); y < bottom; y += 1) {
+    for (let x = Math.max(left, 0); x < right; x += 1) {
+      const at = (y * image.width + x) * 4;
+      image.rgba[at] = r;
+      image.rgba[at + 1] = g;
+      image.rgba[at + 2] = b;
+      image.rgba[at + 3] = 255;
+    }
+  }
+}
+
+const BOX_COLOR = [230, 30, 90];
+const WHITE = [255, 255, 255];
+
+function drawBox(image, box, number) {
+  const stroke = Math.max(3, Math.round(Math.min(image.width, image.height) / 300));
+  const outline = (grow, color, thickness) => {
+    const left = box.x - grow;
+    const top = box.y - grow;
+    const width = box.width + grow * 2;
+    const height = box.height + grow * 2;
+    fillRect(image, left, top, width, thickness, color);
+    fillRect(image, left, top + height - thickness, width, thickness, color);
+    fillRect(image, left, top, thickness, height, color);
+    fillRect(image, left + width - thickness, top, thickness, height, color);
+  };
+  outline(stroke, WHITE, stroke);
+  outline(0, BOX_COLOR, stroke);
+  const digits = String(number).split('').map(Number);
+  const scale = Math.max(3, Math.round(Math.min(image.width, image.height) / 160));
+  const tagWidth = (digits.length * 4 + 1) * scale;
+  const tagHeight = 7 * scale;
+  const tagLeft = Math.min(box.x, image.width - tagWidth);
+  const tagTop = Math.min(box.y, image.height - tagHeight);
+  fillRect(image, tagLeft, tagTop, tagWidth, tagHeight, BOX_COLOR);
+  digits.forEach((digit, index) => {
+    [...DIGITS[digit]].forEach((pixel, cell) => {
+      if (pixel !== '1') return;
+      fillRect(
+        image,
+        tagLeft + scale + index * 4 * scale + (cell % 3) * scale,
+        tagTop + scale + Math.floor(cell / 3) * scale,
+        scale,
+        scale,
+        WHITE,
+      );
+    });
+  });
+}
+
+function cropImage(image, box) {
+  const rgba = Buffer.alloc(box.width * box.height * 4);
+  for (let y = 0; y < box.height; y += 1) {
+    const from = ((box.y + y) * image.width + box.x) * 4;
+    image.rgba.copy(rgba, y * box.width * 4, from, from + box.width * 4);
+  }
+  return { width: box.width, height: box.height, rgba };
+}
+
+function regionBox({ x, y, width, height }, image) {
+  const left = Math.min(Math.round(x * image.width), image.width - 1);
+  const top = Math.min(Math.round(y * image.height), image.height - 1);
+  const right = Math.min(Math.round((x + width) * image.width), image.width);
+  const bottom = Math.min(Math.round((y + height) * image.height), image.height);
+  return { x: left, y: top, width: Math.max(right - left, 1), height: Math.max(bottom - top, 1) };
+}
+
+function imageExtension(bytes) {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return '.jpg';
+  if (bytes.toString('latin1', 0, 4) === 'RIFF') return '.webp';
+  return '.png';
+}
+
+async function downloadImage(url) {
+  let response;
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS) });
+  } catch (err) {
+    throw new CliError('network_error', `Could not download the image (${(err && err.message) || 'unknown error'}).`);
+  }
+  if (!response.ok) throw new CliError('download_failed', `Storage refused the download (HTTP ${response.status}).`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+// Everything a revise run needs on disk: the image reviewed, one overlay with
+// every box numbered, a crop per box and a manifest tying each note to it.
+async function writeRegionFiles(parsed, config) {
+  const directory = path.resolve(requireOption(parsed, 'out'));
+  const creative = (await api(config, 'GET', creativeRoute()(parsed))).data;
+  if (!creative.image || !creative.image.url) throw new CliError('image_unavailable', 'This revision has no readable image.');
+  const bytes = await downloadImage(creative.image.url);
+  fs.mkdirSync(directory, { recursive: true });
+  const original = path.join(directory, `v${creative.revision}-original${imageExtension(bytes)}`);
+  fs.writeFileSync(original, bytes);
+  const decoded = decodePng(bytes) || convertToPng(original, directory);
+  const overlay = { ...decoded, rgba: Buffer.from(decoded.rgba) };
+  const regions = [];
+  for (const comment of creative.comments) {
+    for (const region of comment.regions) {
+      const box = regionBox(region.normalized, decoded);
+      const crop = path.join(directory, `region-${region.number}.png`);
+      fs.writeFileSync(crop, encodePng(cropImage(decoded, box)));
+      drawBox(overlay, box, region.number);
+      regions.push({ number: region.number, note: region.note, author: comment.author, normalized: region.normalized, pixels: box, crop });
+    }
+  }
+  const overlayFile = path.join(directory, 'overlay.png');
+  fs.writeFileSync(overlayFile, encodePng(overlay));
+  const manifest = path.join(directory, 'regions.json');
+  const generalComments = creative.comments
+    .filter((comment) => comment.body)
+    .map((comment) => ({ author: comment.author, decision: comment.decision, body: comment.body }));
+  writeJsonFile(manifest, {
+    creativeId: creative.creativeId,
+    revision: creative.revision,
+    utmCreative: creative.utmCreative,
+    image: { file: original, width: decoded.width, height: decoded.height },
+    overlay: overlayFile,
+    prompt: creative.prompt,
+    onImageText: creative.onImageText,
+    copy: creative.copy,
+    regions,
+    generalComments,
+  });
+  return succeed({ creativeId: creative.creativeId, revision: creative.revision, manifest, overlay: overlayFile, original, regions: regions.length, generalComments: generalComments.length });
+}
+
 const BUNDLES = {
+  'ad-product': { schema: AD_PRODUCT_SCHEMA, counts: () => ({ products: 1 }) },
+  'ad-product-patch': { schema: AD_PRODUCT_PATCH_SCHEMA, counts: () => ({ products: 1 }) },
+  'ad-rule': { schema: AD_RULE_SCHEMA, counts: () => ({ rules: 1 }) },
+  'ad-rule-patch': { schema: AD_RULE_PATCH_SCHEMA, counts: () => ({ rules: 1 }) },
+  'ad-iteration': { schema: AD_ITERATION_SCHEMA, counts: () => ({ iterations: 1 }) },
+  'creative-review': { schema: AD_CREATIVE_SCHEMA, counts: () => ({ creatives: 1 }) },
+  'creative-revision': { schema: AD_REVISION_SCHEMA, counts: () => ({ revisions: 1 }) },
   ...adBundles(),
   posts: {
     schema: POSTS_SCHEMA,
@@ -972,7 +1385,7 @@ const BUNDLES = {
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
   captures: { schema: RESEARCH_CAPTURES_SCHEMA, check: checkCapturesBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -1091,11 +1504,11 @@ function del(route) {
   return withConfig(async (parsed, config) => emit(await api(config, 'DELETE', route(parsed))));
 }
 
-function readUploadFile(parsed, types, described) {
-  const file = path.resolve(requireOption(parsed, 'file'));
+function readUploadFile(parsed, types, described, option = 'file') {
+  const file = path.resolve(requireOption(parsed, option));
   const contentType = types[path.extname(file).toLowerCase()];
   if (!contentType) {
-    throw new CliError('invalid_request', `--file must be ${described} (${Object.keys(types).join(', ')}).`);
+    throw new CliError('invalid_request', `--${option} must be ${described} (${Object.keys(types).join(', ')}).`);
   }
   let bytes;
   try {
@@ -1303,6 +1716,11 @@ function sendFile(kind, route, options) {
   return withConfig((parsed, config) => submitBundle(parsed, config, kind, route(parsed), options && options(parsed)));
 }
 
+const productRoute = (suffix = '') => (parsed) => `${brandRoute('/ad-book/products')(parsed)}/${segment(requireOption(parsed, 'id'))}${suffix}`;
+const adRuleRoute = (parsed) => `${brandRoute('/ad-book/rules')(parsed)}/${segment(requireOption(parsed, 'id'))}`;
+const creativeRoute = (suffix = '') => (parsed) => `${brandRoute('/ad-review/creatives')(parsed)}/${segment(requireOption(parsed, 'id'))}${suffix}`;
+const iterationCreativesRoute = (parsed) => `${brandRoute('/ad-review/iterations')(parsed)}/${segment(requireOption(parsed, 'iteration'))}/creatives`;
+
 const COMMANDS = {
   setup: runSetup,
   config: async (args) => {
@@ -1437,6 +1855,27 @@ const COMMANDS = {
     (parsed) => ({ kind: enumOption(parsed, 'kind', AD_MEDIA_KINDS), limit: integerOption(parsed, 'limit', 1, 200), accountId: accountOption(parsed) }),
   ),
   'ads:targeting': get(brandRoute('/ads/targeting'), (parsed) => ({ ...adsTargetingQuery(parsed), accountId: accountOption(parsed) })),
+  'ad-book': get(brandRoute('/ad-book')),
+  'ad-product:import': sendFile('ad-product', brandRoute('/ad-book/products')),
+  'ad-product:update': sendFile('ad-product-patch', productRoute(), () => ({ method: 'PATCH' })),
+  'ad-product:cutout': withConfig(addCutout),
+  'ad-rule:import': sendFile('ad-rule', brandRoute('/ad-book/rules')),
+  'ad-rule:update': sendFile('ad-rule-patch', adRuleRoute, () => ({ method: 'PATCH' })),
+  'creative:iterations': get(brandRoute('/ad-review/iterations'), (parsed) => ({ productId: optionalOption(parsed, 'product') })),
+  'creative:iteration:create': sendFile('ad-iteration', brandRoute('/ad-review/iterations')),
+  'creative:submit': withConfig((parsed, config) => sendWithImage(parsed, config, 'creative-review', iterationCreativesRoute)),
+  'creative:list': getToFile(
+    brandRoute('/ad-review/creatives'),
+    (parsed) => ({
+      status: enumOption(parsed, 'status', CREATIVE_STATUSES),
+      iterationId: optionalOption(parsed, 'iteration'),
+      limit: integerOption(parsed, 'limit', 1, 50),
+    }),
+    (data) => ({ creatives: countOf(data.creatives), truncated: Boolean(data.truncated) }),
+  ),
+  'creative:get': get(creativeRoute()),
+  'creative:regions': withConfig(writeRegionFiles),
+  'creative:revise': withConfig((parsed, config) => sendWithImage(parsed, config, 'creative-revision', creativeRoute('/revisions'))),
   schema: async (args) => {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
@@ -1490,6 +1929,19 @@ const COMMANDS = {
       'ads:media:add': '--brand <brandId> [--account <accountId>] --file <image.jpg|png|video.mp4|mov> [--name <name>]',
       'ads:media': `--brand <brandId> [--account <accountId>] [--kind ${AD_MEDIA_KINDS.join('|')}] [--limit 1..200]`,
       'ads:targeting': `--brand <brandId> [--account <accountId>] --type ${TARGETING_TYPES.join('|')} --q <text>`,
+      'ad-book': '--brand <brandId>',
+      'ad-product:import': '--brand <brandId> --file <product.json> [--dry-run]',
+      'ad-product:update': '--brand <brandId> --id <productId> --file <patch.json> [--dry-run]',
+      'ad-product:cutout': '--brand <brandId> --id <productId> --file <image.jpg|png|webp> [--label <text>]',
+      'ad-rule:import': '--brand <brandId> --file <rule.json> [--dry-run]',
+      'ad-rule:update': '--brand <brandId> --id <ruleId> --file <patch.json> [--dry-run]',
+      'creative:iterations': '--brand <brandId> [--product <productId>]',
+      'creative:iteration:create': '--brand <brandId> --file <iteration.json> [--dry-run]',
+      'creative:submit': '--brand <brandId> --iteration <iterationId> --file <creative.json> --image <image.jpg|png|webp> [--dry-run]',
+      'creative:list': `--brand <brandId> [--status ${CREATIVE_STATUSES.join('|')}] [--iteration <iterationId>] [--limit 1..50] [--out <file>]`,
+      'creative:get': '--brand <brandId> --id <creativeId>',
+      'creative:regions': '--brand <brandId> --id <creativeId> --out <dir>',
+      'creative:revise': '--brand <brandId> --id <creativeId> --file <revision.json> --image <image.jpg|png|webp> [--dry-run]',
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
     env: ['BICHON_AGENT_API_KEY', 'BICHON_AGENT_BASE_URL', 'BICHON_CONFIG_PATH'],

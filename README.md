@@ -132,6 +132,20 @@ $S ads:update --brand <brandId> --kind adset --id <adsetId> --file work/patch.js
 $S ads:records --brand <brandId> --campaign <campaignId>   # what each ad tests: brief + copy
 ```
 
+Creative review (generate here, review in the dashboard, revise from the
+comments; see the Creative review section of SKILL.md):
+
+```bash
+$S ad-book --brand <brandId>                                   # products, cutouts, rules
+$S ad-product:import --brand <brandId> --file work/product.json
+$S ad-rule:import --brand <brandId> --file work/rule.json
+$S creative:iteration:create --brand <brandId> --file work/iteration.json
+$S creative:submit --brand <brandId> --iteration <id> --file work/creative.json --image work/f0.png
+$S creative:list --brand <brandId>                             # changes_requested, with comments and regions
+$S creative:regions --brand <brandId> --id <id> --out work/r1  # overlay.png, region-N.png, regions.json
+$S creative:revise --brand <brandId> --id <id> --file work/revision.json --image work/f0-v2.png
+```
+
 Everything is created `PAUSED`; `ads:update` can pause but never activate.
 Every ad carries a `brief` (the angle and hook it tests, and optionally the
 persona, offer, core message and source idea); Bichon stores it with the ad's
