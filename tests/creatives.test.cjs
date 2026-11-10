@@ -158,6 +158,11 @@ test('bad bundles fail locally and name the path', async () => {
   const note = await call(['creative:revise', '--brand', 'b1', '--id', 'c1', '--file', file({ format: 'bichon-ad-revision/v1', agent: AGENT, basedOnRevision: 1, prompt: 'p', onImageText: '' }), '--image', imagePath()]);
   assert.equal(note.code, 1);
   assert.ok(note.json.error.details.issues.some((issue) => issue.path === 'responseNote'));
+  const flags = await call(['creative:submit', '--brand', 'b1', '--iteration', 'i1', '--file', file({ ...CREATIVE, ruleFlags: [{ ruleId: 'r1', note: '' }, { ruleId: 'r2' }] }), '--image', imagePath(), '--dry-run']);
+  assert.equal(flags.code, 1);
+  const paths = flags.json.error.details.issues.map((issue) => issue.path);
+  assert.ok(paths.some((path) => /ruleFlags.*0.*note/.test(path)), paths.join(', '));
+  assert.ok(paths.some((path) => /ruleFlags.*1/.test(path)), paths.join(', '));
 });
 
 test('creative:submit uploads the image, then submits with its key and real size', async () => {

@@ -21,7 +21,7 @@ description: >
   review, and revises them against the reviewer's comments, changing only the
   image areas they marked.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-11-09
+last-updated: 2026-11-10
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -980,7 +980,7 @@ ad.
 | `creative:iterations --brand <id> [--product <productId>]` | `{ iterations, truncated }`: rounds with `status` (`open`, `closed`) and counts per review status; without `--product`, the brand's newest 500 |
 | `creative:iteration:create --brand <id> --file iteration.json [--dry-run]` | Open a round; a repeated name returns the same one: `{ iterationId, action, status }` |
 | `creative:submit --brand <id> --iteration <iterationId> --file creative.json --image <file> [--dry-run]` | Upload the image and submit the creative for review: `{ creativeId, revision: 1, status: "submitted" }`. The image's size is read from the file |
-| `creative:list --brand <id> [--status changes_requested\|submitted\|approved\|rejected] [--iteration <id>] [--limit 1..50] [--out file.json]` | Creatives by status (default `changes_requested`), each with `image` (`url`, `width`, `height`), `prompt`, `onImageText`, `copy` and the `comments` on its current revision |
+| `creative:list --brand <id> [--status changes_requested\|submitted\|approved\|rejected] [--iteration <id>] [--limit 1..50] [--out file.json]` | Creatives by status (default `changes_requested`), each with `image` (`url`, `width`, `height`), `prompt`, `onImageText`, `ruleFlags`, `copy` and the `comments` on its current revision |
 | `creative:get --brand <id> --id <creativeId>` | One creative in the same shape |
 | `creative:regions --brand <id> --id <creativeId> --out <dir>` | Write the image, an overlay with every box numbered, one crop per box and `regions.json` to `<dir>` |
 | `creative:revise --brand <id> --id <creativeId> --file revision.json --image <file> [--dry-run]` | Upload the new version and send it back to review: `{ creativeId, revision, status: "submitted" }` |
@@ -996,6 +996,16 @@ accepted and rejected examples. Use the official cutouts for the product.
 example `fullerene-f0-line-v1` (a 409 returns the existing `creativeId` in
 `details`). The creative runs the product's listing copy; set `creative.copy`
 only for the fields that differ for this creative.
+
+**Flagging rules.** Check each creative against the brand book before you
+submit it. For every rule it may break, add `{ ruleId, note }` to that
+creative's `ruleFlags`: the rule's id from `ad-book`, and a short note on what
+in this image or copy touches it (`主標有驚嘆號`, `瓶身約 36%`). The reviewer sees
+them inside that creative's review, next to the image. Only active rules that
+are brand-wide or set for the creative's product are accepted, each once, at
+most 20. Never put per-creative flags in the round's `note`: the note is the
+pack brief (angle × concept, where it runs, when it went live). A revision
+states its own `ruleFlags`; leave them out when the new version clears them.
 
 **Revising.** Work through `creative:list`, then for each creative:
 
@@ -1368,7 +1378,10 @@ A creative (`creative:submit` adds the image):
     "utmCreative": "fullerene-f0-hand-v1"
   },
   "prompt": "The full prompt the image was generated from",
-  "onImageText": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的\n精華乳質地的富勒烯抗老精華"
+  "onImageText": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的\n精華乳質地的富勒烯抗老精華",
+  "ruleFlags": [
+    { "ruleId": "<ruleId from ad-book>", "note": "瓶身約佔 36%，規則要 45%" }
+  ]
 }
 ```
 
@@ -1394,7 +1407,7 @@ The helper checks these before sending and names the offending path.
 | `posts` | ≤ 5 (0 allowed with `noPostsReason`) |
 | Ad product | `name` 100 chars; ≤ 30 `bannedNames`; ≤ 40 `claimLabels`; ≤ 60 each of `canSay` and `cannotSay`, `text` and `note` 1000 chars; primary text 5000 chars, headline and description 255 |
 | Ad rule | `text` 2000 chars; ≤ 20 accepted and 20 rejected examples of 500 chars |
-| Creative | `title` 200, `angle` and `hook` 300, `format` and `utmCreative` 100 chars; `prompt` 20000, `onImageText` 4000 chars; ≤ 20 revisions and 200 per iteration |
+| Creative | `title` 200, `angle` and `hook` 300, `format` and `utmCreative` 100 chars; `prompt` 20000, `onImageText` 4000 chars; ≤ 20 `ruleFlags`, `note` 500 chars; ≤ 20 revisions and 200 per iteration |
 | Revision `responseNote` | 2000 chars, required |
 | `title` / `hook` / `treatment` | 200 / 1000 / 2000 chars |
 | `audienceBenefit` / `limitation` / `coreMessage` | 300 chars each |

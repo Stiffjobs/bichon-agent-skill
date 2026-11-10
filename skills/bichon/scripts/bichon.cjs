@@ -1009,6 +1009,7 @@ const AD_PRODUCT_PATCH_SCHEMA = adBundleSchema('ad-product-patch', 'AdProductPat
 const AD_RULE_SCHEMA = adBundleSchema('ad-rule', 'AdRule', { rule: strictObject(adRuleFields, ['kind', 'text']) }, ['rule']);
 const AD_RULE_PATCH_SCHEMA = adBundleSchema('ad-rule-patch', 'AdRulePatch', { patch: strictObject(adRuleFields) }, ['patch']);
 const AD_ITERATION_SCHEMA = adBundleSchema('ad-iteration', 'AdIteration', { productId: str(64), name: str(100), note: str(2000, 0) }, ['productId', 'name']);
+const ruleFlagsSchema = list(strictObject({ ruleId: str(64), note: str(500) }, ['ruleId', 'note']), 20);
 const AD_CREATIVE_SCHEMA = adBundleSchema(
   'ad-creative',
   'AdCreative',
@@ -1026,6 +1027,7 @@ const AD_CREATIVE_SCHEMA = adBundleSchema(
     ),
     prompt: str(20000),
     onImageText: str(4000, 0),
+    ruleFlags: ruleFlagsSchema,
   },
   ['creative', 'prompt', 'onImageText'],
 );
@@ -1038,6 +1040,7 @@ const AD_REVISION_SCHEMA = adBundleSchema(
     onImageText: str(4000, 0),
     responseNote: str(2000),
     copy: { ...adCopySchema, type: ['object', 'null'] },
+    ruleFlags: ruleFlagsSchema,
   },
   ['basedOnRevision', 'prompt', 'onImageText', 'responseNote'],
 );
@@ -1431,6 +1434,7 @@ async function writeRegionFiles(parsed, config) {
     overlay: overlayFile,
     prompt: creative.prompt,
     onImageText: creative.onImageText,
+    ruleFlags: creative.ruleFlags ?? [],
     copy: creative.copy,
     regions,
     generalComments,
