@@ -3,6 +3,14 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.17.0 (2026-11-10)
+
+- `creative:submit` and `creative:revise` take `ruleFlags: [{ ruleId, note }]`:
+  the brand-book rules this version may break and why. The reviewer sees them
+  inside the creative's review instead of in the round note. `creative:list`,
+  `creative:get` and `creative:regions` return them.
+- Needs the matching app deploy: an older one refuses the field.
+
 ## 0.16.0 (2026-11-09)
 
 - Paid-ad creative review. `ad-book` reads a brand's products, cutouts and
