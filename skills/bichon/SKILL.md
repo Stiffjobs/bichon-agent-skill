@@ -19,9 +19,11 @@ description: >
   the brand, uploading the ad images and videos, all created paused. Keeps
   the brand book of products and rules, uploads generated ad creatives for
   review, and revises them against the reviewer's comments, changing only the
-  image areas they marked.
+  image areas they marked. Syncs a brand's SEO / GEO plan (phases, tasks,
+  keywords, AI questions, scorecard) from the local project, pushes Search
+  Console numbers and AI-answer checks, and reports task work done locally.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-11-10
+last-updated: 2026-11-18
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -110,7 +112,7 @@ code 1 on any failure. The API key is never printed.
 `--dry-run` runs only the local validation and sends nothing.
 
 The `ads:*` commands are listed under Ads, the `ad-book` and `creative:*`
-commands under Creative review.
+commands under Creative review, the `seo:*` commands under SEO / GEO plan.
 
 ## Intake
 
@@ -1034,6 +1036,74 @@ closed; pull it again and tell the manager rather than retrying.
 the import (who decided it, and the day). Show the manager what you are about
 to import before sending it.
 
+## SEO / GEO plan
+
+A brand's SEO and GEO (AI-answer visibility) plan is run from a local project
+and synced into Bichon, where the brand's client follows progress and the
+agency assigns tasks, sets their status and records deliveries. You own the
+plan's definition; people own the working state.
+
+| Command | What it does |
+|---|---|
+| `seo:plan --brand <id> [--metrics-days 1..730] [--out file.json]` | The whole plan as Bichon has it: `{ plan, tasks, keywords, questions, scorecards, metrics, members }`. Each task carries the working state people set: `status`, `assignee` (`{ userId, name }`), `delivery` (`{ url, note, deliveredAt }`), `completedOn`, `noteCount` and `workingUpdatedBy` (`{ kind: member\|agent, name, agentName }`). `members` are the people a task can be assigned to (`userId`, `name`, `role`; no emails). `metrics` are the daily rows of the last `--metrics-days` (default 90). `--out` writes it to a file and prints counts and tasks by status |
+| `seo:plan:sync --brand <id> --file plan.json [--prune] [--dry-run]` | Create or update the plan, its phases and scorecard dimensions, and upsert tasks, keywords and questions by `key`: `{ action, tasks, keywords, questions, notesAdded, workingUpdated }`, each count `{ created, updated, unchanged, removed }` |
+| `seo:task --brand <id> --task <key>` | One task with its dated `notes`, newest first |
+| `seo:task:update --brand <id> --task <key> --file update.json [--dry-run]` | Report work you did locally: status, assignee, delivery, completion day and/or one dated note: `{ changed, noteAdded, task }` |
+| `seo:metrics:push --brand <id> --file metrics.json [--dry-run]` | Upsert daily Search Console impressions, clicks and average position by day: `{ created, updated, unchanged, pruned }` |
+| `seo:keywords:push --brand <id> --file keywords.json [--dry-run]` | Current rank, impressions and clicks per keyword, with the previous period for the change: `{ updated, unchanged }` |
+| `seo:questions:check --brand <id> --file checks.json [--dry-run]` | What each AI assistant answered: mentioned, cited, cited URL and accuracy, one per question, engine and day: `{ created, updated, unchanged, pruned }` |
+| `seo:scorecard:push --brand <id> --file scorecard.json [--dry-run]` | Monthly scores per dimension (`null` is not scored yet): `{ created, updated, unchanged, pruned }` |
+
+**Who owns what.** The plan sync carries each task's definition: `number`
+(the plan's own "0.1", "1.4"), `title`, `description`, `doneCriteria`,
+`phase`, `kind`, `owner` (`agency`, `brand` or `both`: who does the work, apart
+from the person assigned), `order` (the recommended order within the phase),
+dates and linked keyword and question keys. A sync never touches a task's
+assignee, status or delivery unless the task carries a `working` block, and
+people change those in the app all the time. So:
+
+1. Before a sync, run `seo:plan` and read the working state back. Keep your
+   local plan in step with it; never reset what people set.
+2. Send `working` (or use `seo:task:update`) only for work you know was done,
+   such as a task you finished on this machine. It applies over what people
+   set (last write wins) and the task shows it was the agent's.
+3. Assign with `assigneeEmail` (a member's sign-in email the manager gave
+   you) or `assigneeUserId` from `members`; `null` unassigns.
+4. A task marked `done` keeps the day: `completedOn`, or today in the plan's
+   `timeZone`. Moving it back out of `done` clears it.
+5. Dated `notes` ("11/11 rewritten: …") are appended, newest shown first; the
+   same date and text is not added twice, so re-sending them is safe. A task
+   keeps its newest 100.
+
+**Missing rows are kept.** A task, keyword or question the bundle leaves out
+stays as it is. Send `--prune` only with the complete list: every task,
+keyword and question a list in the bundle leaves out is then removed, with
+its notes or checks. A list the bundle omits entirely is never pruned. A plan
+too large for one 1 MB request goes in several syncs without `--prune`.
+
+**Dates.** Phases and tasks are calendar days (`YYYY-MM-DD`). Convert a
+plan written in weeks ("weeks 1–3") to dates from `plan.startDate` and keep
+the weeks in `weekFrom` / `weekTo`; phases may overlap. A task without its
+own dates spans its phase. The page's "this week" runs Monday to Sunday in
+the plan's `timeZone`.
+
+**Search data.** Read Search Console on this machine and push whole days
+(`seo:metrics:push`, at most 400 a call, never today's partial day). Keyword
+`position` is the current rank; `null` with `positionLimit` means "not in the
+top N", never 0. Bichon keeps two years of daily rows.
+
+**AI answers.** For each tracked question and engine (`chatgpt`, `gemini`,
+`google_ai_overview`, or another lower-case id), record whether the brand
+was `mentioned` and `cited`, the `citedUrl`, and `accuracy` (`correct`,
+`incorrect` or `not_applicable`) with an `accuracyNote` saying what the
+answer got wrong. Wrong answers are shown first to the client; fixing them is
+a `geo` task.
+
+**Scorecard.** `plan.dimensions` are the fixed scorecard rows with weights
+summing to 100. Each month (`YYYY-MM`) scores a dimension from 0 to its
+weight, or `null` when not scored yet; the page shows the total out of the
+scored weight until every dimension is scored. A month is replaced whole.
+
 ## Bundle formats
 
 `schema` prints the exact JSON Schemas. Evidence and claim references are
@@ -1398,6 +1468,144 @@ A revision (`creative:revise` adds the image):
 }
 ```
 
+### SEO / GEO bundles
+
+A plan sync (`seo:plan:sync`). `plan` is required on every sync; `tasks`,
+`keywords` and `questions` are each optional, and a task's `working` block is
+only for work you know was done:
+
+```json
+{
+  "format": "bichon-seo-plan/v1",
+  "agent": { "name": "claude-code" },
+  "plan": {
+    "title": "官網 SEO / GEO 計畫",
+    "site": "https://www.example.com/",
+    "goal": "非品牌字的自然搜尋與 AI 導流帶來訂單。",
+    "startDate": "2026-11-10",
+    "endDate": "2027-02-01",
+    "timeZone": "Asia/Taipei",
+    "phases": [
+      { "key": "p0", "title": "量測", "startDate": "2026-11-10", "endDate": "2026-11-16", "weekFrom": 1, "weekTo": 1 },
+      { "key": "p1", "title": "技術修正", "startDate": "2026-11-10", "endDate": "2026-11-30", "weekFrom": 1, "weekTo": 3 }
+    ],
+    "dimensions": [
+      { "key": "technical", "title": "技術基礎", "weight": 30 },
+      { "key": "content", "title": "內容與頁面", "weight": 30 },
+      { "key": "ai", "title": "AI 能見度", "weight": 40 }
+    ]
+  },
+  "tasks": [
+    {
+      "key": "0.1",
+      "number": "0.1",
+      "title": "整理分析工具的資源與關鍵事件",
+      "description": "只留一個有資料的資源，關鍵事件只留購買，並新增 AI 導流管道。",
+      "doneCriteria": "管道分組合理，AI 導流有獨立一列",
+      "phase": "p0",
+      "kind": "measurement",
+      "owner": "agency",
+      "order": 1,
+      "working": { "status": "done", "completedOn": "2026-11-17" },
+      "notes": [{ "date": "2026-11-17", "text": "完成，細節見月報" }]
+    },
+    {
+      "key": "1.1",
+      "number": "1.1",
+      "title": "首頁加上主標題並縮短描述",
+      "doneCriteria": "爬取結果只有一個主標題、標題不重複",
+      "phase": "p1",
+      "kind": "onpage",
+      "owner": "both",
+      "order": 2,
+      "dueDate": "2026-11-20",
+      "keywords": ["kw-brand"],
+      "questions": ["q-brand"]
+    }
+  ],
+  "keywords": [
+    { "key": "kw-brand", "keyword": "品牌 評價", "group": "brand", "targetUrl": "https://www.example.com/reviews", "searchVolume": 1200 },
+    { "key": "kw-serum", "keyword": "抗老精華推薦", "group": "product", "searchVolume": 2400 }
+  ],
+  "questions": [
+    { "key": "q-brand", "question": "這個品牌的保養品評價怎麼樣？", "topic": "品牌" }
+  ]
+}
+```
+
+A task update (`seo:task:update`); send only what changed:
+
+```json
+{
+  "format": "bichon-seo-task-update/v1",
+  "agent": { "name": "claude-code" },
+  "status": "in_review",
+  "assigneeEmail": "member@example.com",
+  "delivery": { "url": "https://docs.example.com/report", "note": "改寫後的標題清單" },
+  "note": { "date": "2026-11-18", "text": "標題清單已交，等品牌確認" }
+}
+```
+
+Daily metrics (`seo:metrics:push`):
+
+```json
+{
+  "format": "bichon-seo-metrics/v1",
+  "agent": { "name": "claude-code" },
+  "rows": [
+    { "date": "2026-11-15", "impressions": 13200, "clicks": 240, "position": 6.8 },
+    { "date": "2026-11-16", "impressions": 12800, "clicks": 231, "position": 6.9 }
+  ]
+}
+```
+
+Keyword stats (`seo:keywords:push`); `checkedOn` is the day you read them:
+
+```json
+{
+  "format": "bichon-seo-keyword-stats/v1",
+  "agent": { "name": "claude-code" },
+  "checkedOn": "2026-11-17",
+  "rows": [
+    { "key": "kw-brand", "position": 2.4, "previousPosition": 3.1, "impressions": 900, "clicks": 120, "previousImpressions": 850, "previousClicks": 101, "periodStart": "2026-10-20", "periodEnd": "2026-11-16" },
+    { "key": "kw-serum", "position": null, "positionLimit": 20 }
+  ]
+}
+```
+
+AI answer checks (`seo:questions:check`):
+
+```json
+{
+  "format": "bichon-seo-question-checks/v1",
+  "agent": { "name": "claude-code" },
+  "checks": [
+    { "question": "q-brand", "engine": "chatgpt", "checkedOn": "2026-11-13", "mentioned": true, "cited": false, "accuracy": "incorrect", "accuracyNote": "用了舊商品名" },
+    { "question": "q-brand", "engine": "google_ai_overview", "checkedOn": "2026-11-13", "mentioned": true, "cited": true, "citedUrl": "https://www.example.com/reviews", "accuracy": "correct" }
+  ]
+}
+```
+
+A monthly scorecard (`seo:scorecard:push`):
+
+```json
+{
+  "format": "bichon-seo-scorecard/v1",
+  "agent": { "name": "claude-code" },
+  "months": [
+    {
+      "month": "2026-11",
+      "note": "第 0 個月，粗估",
+      "scores": [
+        { "dimension": "technical", "score": 12, "note": "裸網域已修" },
+        { "dimension": "content", "score": 10 },
+        { "dimension": "ai", "score": null }
+      ]
+    }
+  ]
+}
+```
+
 ## Bounds
 
 The helper checks these before sending and names the offending path.
@@ -1409,6 +1617,10 @@ The helper checks these before sending and names the offending path.
 | Ad rule | `text` 2000 chars; ≤ 20 accepted and 20 rejected examples of 500 chars |
 | Creative | `title` 200, `angle` and `hook` 300, `format` and `utmCreative` 100 chars; `prompt` 20000, `onImageText` 4000 chars; ≤ 20 `ruleFlags`, `note` 500 chars; ≤ 20 revisions and 200 per iteration |
 | Revision `responseNote` | 2000 chars, required |
+| SEO plan | `title` 200 chars, `site` an http(s) URL, `goal` 4000; 1–12 `phases` (`title` 200, `description` 2000); ≤ 12 `dimensions` (`title` 100, weights summing to 100); `key`s are letters, digits, `.`, `-` or `_`, ≤ 64 |
+| SEO tasks | ≤ 200 per plan; `number` 20, `title` 300, `description` 4000, `doneCriteria` 1500 chars; ≤ 50 linked keywords and questions; ≤ 20 `notes` per sync, `text` 2000; delivery `note` 4000; a task keeps its newest 100 notes |
+| SEO keywords / questions | ≤ 500 keywords (`keyword` 200, `group` / `intent` 100) and ≤ 200 questions (`question` 1000, `topic` 100) per plan |
+| SEO pushes | ≤ 400 days of metrics, never in the future; ≤ 500 keyword rows; ≤ 600 checks (`engine` 40, `accuracyNote` 500), at most 8 engines per question and 200 checks kept per question; ≤ 24 scorecard months (`note` 2000, score `note` 500), 60 months kept |
 | `title` / `hook` / `treatment` | 200 / 1000 / 2000 chars |
 | `audienceBenefit` / `limitation` / `coreMessage` | 300 chars each |
 | `whyNow` | 2000 chars |

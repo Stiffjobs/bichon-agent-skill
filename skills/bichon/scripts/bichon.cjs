@@ -19,7 +19,7 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const IMAGE_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
 const AD_MEDIA_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.mp4': 'video/mp4', '.mov': 'video/quicktime' };
-const BOOLEAN_FLAGS = new Set(['pretty', 'local', 'no-verify', 'dry-run', 'help', 'history', 'daily']);
+const BOOLEAN_FLAGS = new Set(['pretty', 'local', 'no-verify', 'dry-run', 'help', 'history', 'daily', 'prune']);
 const REDACTED = '[redacted]';
 const SENSITIVE_FIELD_NAMES = new Set([
   'accesstoken',
@@ -1045,6 +1045,283 @@ const AD_REVISION_SCHEMA = adBundleSchema(
   ['basedOnRevision', 'prompt', 'onImageText', 'responseNote'],
 );
 
+const SEO_TASK_KINDS = ['measurement', 'technical', 'onpage', 'content', 'links', 'geo', 'other'];
+const SEO_TASK_OWNERS = ['agency', 'brand', 'both'];
+const SEO_TASK_STATUSES = ['todo', 'in_progress', 'in_review', 'done', 'blocked'];
+const SEO_ACCURACY = ['correct', 'incorrect', 'not_applicable'];
+const seoKey = { ...str(64), pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$', description: 'letters, digits, dots, - or _ (≤ 64)' };
+const seoDate = { type: 'string', pattern: DATE.source, description: 'a YYYY-MM-DD date' };
+const seoUrl = { ...str(2000), pattern: '^https?://', description: 'an http(s) URL' };
+const seoCount = { type: 'integer', minimum: 0, maximum: 1e12 };
+const seoPosition = { type: 'number', minimum: 1, maximum: 1000 };
+const seoNote = strictObject({ date: seoDate, text: str(2000) }, ['date', 'text']);
+const seoWorking = {
+  status: { enum: SEO_TASK_STATUSES },
+  assigneeEmail: { ...str(320), type: ['string', 'null'] },
+  assigneeUserId: { ...str(64), type: ['string', 'null'] },
+  delivery: { ...strictObject({ url: seoUrl, note: str(4000, 0) }), type: ['object', 'null'] },
+  completedOn: { ...seoDate, type: ['string', 'null'] },
+};
+const SEO_PLAN_SCHEMA = adBundleSchema(
+  'seo-plan',
+  'SeoPlan',
+  {
+    prune: { type: 'boolean' },
+    plan: strictObject(
+      {
+        title: str(200),
+        site: seoUrl,
+        goal: str(4000, 0),
+        startDate: seoDate,
+        endDate: seoDate,
+        timeZone: str(64),
+        phases: list(
+          strictObject(
+            {
+              key: seoKey,
+              title: str(200),
+              description: str(2000, 0),
+              startDate: seoDate,
+              endDate: seoDate,
+              weekFrom: { type: 'integer', minimum: 0, maximum: 520 },
+              weekTo: { type: 'integer', minimum: 0, maximum: 520 },
+              order: { type: 'integer', minimum: 0, maximum: 1000 },
+            },
+            ['key', 'title', 'startDate', 'endDate'],
+          ),
+          12,
+          { minItems: 1 },
+        ),
+        dimensions: list(
+          strictObject(
+            { key: seoKey, title: str(100), weight: { type: 'number', minimum: 0, maximum: 100 }, description: str(1000, 0) },
+            ['key', 'title', 'weight'],
+          ),
+          12,
+        ),
+      },
+      ['title', 'site', 'startDate', 'endDate', 'phases'],
+    ),
+    tasks: list(
+      strictObject(
+        {
+          key: seoKey,
+          number: str(20),
+          title: str(300),
+          description: str(4000, 0),
+          doneCriteria: str(1500, 0),
+          phase: seoKey,
+          kind: { enum: SEO_TASK_KINDS },
+          owner: { enum: SEO_TASK_OWNERS },
+          order: { type: 'number', minimum: 0, maximum: 100000 },
+          startDate: seoDate,
+          dueDate: seoDate,
+          keywords: list(seoKey, 50, { uniqueItems: true }),
+          questions: list(seoKey, 50, { uniqueItems: true }),
+          notes: list(seoNote, 20),
+          working: strictObject(seoWorking),
+        },
+        ['key', 'title', 'phase', 'kind', 'owner'],
+      ),
+      200,
+    ),
+    keywords: list(
+      strictObject(
+        { key: seoKey, keyword: str(200), group: str(100, 0), intent: str(100, 0), targetUrl: seoUrl, searchVolume: seoCount },
+        ['key', 'keyword'],
+      ),
+      500,
+    ),
+    questions: list(strictObject({ key: seoKey, question: str(1000), topic: str(100, 0) }, ['key', 'question']), 200),
+  },
+  ['plan'],
+);
+const SEO_TASK_UPDATE_SCHEMA = adBundleSchema('seo-task-update', 'SeoTaskUpdate', { ...seoWorking, note: seoNote }, []);
+const SEO_METRICS_SCHEMA = adBundleSchema(
+  'seo-metrics',
+  'SeoMetrics',
+  {
+    rows: list(
+      strictObject({ date: seoDate, impressions: seoCount, clicks: seoCount, position: seoPosition }, ['date', 'impressions', 'clicks']),
+      400,
+      { minItems: 1 },
+    ),
+  },
+  ['rows'],
+);
+const SEO_KEYWORD_STATS_SCHEMA = adBundleSchema(
+  'seo-keyword-stats',
+  'SeoKeywordStats',
+  {
+    checkedOn: seoDate,
+    rows: list(
+      strictObject(
+        {
+          key: seoKey,
+          position: { ...seoPosition, type: ['number', 'null'] },
+          positionLimit: { type: 'integer', minimum: 1, maximum: 1000 },
+          previousPosition: { ...seoPosition, type: ['number', 'null'] },
+          impressions: seoCount,
+          clicks: seoCount,
+          previousImpressions: seoCount,
+          previousClicks: seoCount,
+          periodStart: seoDate,
+          periodEnd: seoDate,
+          searchVolume: seoCount,
+        },
+        ['key', 'position'],
+      ),
+      500,
+      { minItems: 1 },
+    ),
+  },
+  ['checkedOn', 'rows'],
+);
+const SEO_CHECKS_SCHEMA = adBundleSchema(
+  'seo-question-checks',
+  'SeoQuestionChecks',
+  {
+    checks: list(
+      strictObject(
+        {
+          question: seoKey,
+          engine: { ...str(40), pattern: '^[a-z0-9][a-z0-9_]{0,39}$', description: 'lower-case letters, digits or _ (chatgpt, gemini, google_ai_overview)' },
+          checkedOn: seoDate,
+          mentioned: { type: 'boolean' },
+          cited: { type: 'boolean' },
+          citedUrl: seoUrl,
+          accuracy: { enum: SEO_ACCURACY },
+          accuracyNote: str(500, 0),
+        },
+        ['question', 'engine', 'checkedOn', 'mentioned', 'cited', 'accuracy'],
+      ),
+      600,
+      { minItems: 1 },
+    ),
+  },
+  ['checks'],
+);
+const SEO_SCORECARD_SCHEMA = adBundleSchema(
+  'seo-scorecard',
+  'SeoScorecard',
+  {
+    months: list(
+      strictObject(
+        {
+          month: { type: 'string', pattern: MONTH.source, description: 'YYYY-MM' },
+          note: str(2000, 0),
+          scores: list(
+            strictObject(
+              { dimension: seoKey, score: { type: ['number', 'null'], minimum: 0, maximum: 100 }, note: str(500, 0) },
+              ['dimension', 'score'],
+            ),
+            12,
+          ),
+        },
+        ['month', 'scores'],
+      ),
+      24,
+      { minItems: 1 },
+    ),
+  },
+  ['months'],
+);
+
+function checkUniqueBy(rows, key, at, issues) {
+  const seen = new Set();
+  (Array.isArray(rows) ? rows : []).forEach((row, index) => {
+    const value = key(row || {});
+    if (seen.has(value)) issues.push({ path: `${at}[${index}]`, message: `repeats ${value}` });
+    seen.add(value);
+  });
+}
+
+function checkRealDates(entries, issues) {
+  for (const [at, value] of entries) {
+    if (typeof value === 'string' && DATE.test(value) && !isRealDate(value)) issues.push({ path: at, message: 'is not a real date' });
+  }
+}
+
+function checkSeoPlanBundle(bundle, issues) {
+  const plan = bundle.plan && typeof bundle.plan === 'object' ? bundle.plan : {};
+  const phases = Array.isArray(plan.phases) ? plan.phases : [];
+  checkRealDates([['plan.startDate', plan.startDate], ['plan.endDate', plan.endDate]], issues);
+  if (plan.startDate && plan.endDate && plan.startDate > plan.endDate) issues.push({ path: 'plan.endDate', message: 'is before startDate' });
+  phases.forEach((phase, index) => {
+    checkRealDates([[`plan.phases[${index}].startDate`, phase.startDate], [`plan.phases[${index}].endDate`, phase.endDate]], issues);
+    if (phase.startDate > phase.endDate) issues.push({ path: `plan.phases[${index}].endDate`, message: 'is before startDate' });
+  });
+  checkUniqueBy(phases, (row) => row.key, 'plan.phases', issues);
+  const dimensions = Array.isArray(plan.dimensions) ? plan.dimensions : [];
+  checkUniqueBy(dimensions, (row) => row.key, 'plan.dimensions', issues);
+  const weight = dimensions.reduce((sum, row) => sum + (typeof row.weight === 'number' ? row.weight : 0), 0);
+  if (dimensions.length && Math.abs(weight - 100) > 1e-9) issues.push({ path: 'plan.dimensions', message: `weights sum to ${weight}; they must sum to 100` });
+  const phaseKeys = new Set(phases.map((row) => row.key));
+  const tasks = Array.isArray(bundle.tasks) ? bundle.tasks : [];
+  tasks.forEach((task, index) => {
+    if (task.phase !== undefined && !phaseKeys.has(task.phase)) issues.push({ path: `tasks[${index}].phase`, message: `names no phase (${task.phase})` });
+    if (task.working && task.working.assigneeEmail && task.working.assigneeUserId) issues.push({ path: `tasks[${index}].working`, message: 'give assigneeEmail or assigneeUserId, not both' });
+    checkRealDates([[`tasks[${index}].startDate`, task.startDate], [`tasks[${index}].dueDate`, task.dueDate]], issues);
+    if (task.startDate && task.dueDate && task.startDate > task.dueDate) issues.push({ path: `tasks[${index}].dueDate`, message: 'is before startDate' });
+    (Array.isArray(task.notes) ? task.notes : []).forEach((note, noteIndex) => checkRealDates([[`tasks[${index}].notes[${noteIndex}].date`, note && note.date]], issues));
+  });
+  checkUniqueBy(tasks, (row) => row.key, 'tasks', issues);
+  checkUniqueBy(bundle.keywords, (row) => row.key, 'keywords', issues);
+  checkUniqueBy(bundle.questions, (row) => row.key, 'questions', issues);
+}
+
+function checkSeoTaskUpdate(bundle, issues) {
+  const fields = Object.keys(bundle).filter((key) => key !== 'format' && key !== 'agent');
+  if (fields.length === 0) issues.push({ path: '(root)', message: 'set status, assigneeEmail, assigneeUserId, delivery, completedOn or note' });
+  if (bundle.assigneeEmail && bundle.assigneeUserId) issues.push({ path: '(root)', message: 'give assigneeEmail or assigneeUserId, not both' });
+  checkRealDates([['completedOn', bundle.completedOn], ['note.date', bundle.note && bundle.note.date]], issues);
+}
+
+function checkSeoKeywordStats(bundle, issues) {
+  checkRealDates([['checkedOn', bundle.checkedOn]], issues);
+  (Array.isArray(bundle.rows) ? bundle.rows : []).forEach((row, index) => {
+    checkRealDates([[`rows[${index}].periodStart`, row.periodStart], [`rows[${index}].periodEnd`, row.periodEnd]], issues);
+  });
+  checkUniqueBy(bundle.rows, (row) => row.key, 'rows', issues);
+}
+
+function checkSeoMetrics(bundle, issues) {
+  (Array.isArray(bundle.rows) ? bundle.rows : []).forEach((row, index) => {
+    checkRealDates([[`rows[${index}].date`, row.date]], issues);
+    if (typeof row.clicks === 'number' && typeof row.impressions === 'number' && row.clicks > row.impressions) issues.push({ path: `rows[${index}].clicks`, message: 'is more than impressions' });
+  });
+  checkUniqueBy(bundle.rows, (row) => row.date, 'rows', issues);
+}
+
+function checkSeoChecks(bundle, issues) {
+  (Array.isArray(bundle.checks) ? bundle.checks : []).forEach((row, index) => {
+    checkRealDates([[`checks[${index}].checkedOn`, row.checkedOn]], issues);
+    if (row.citedUrl && !row.cited) issues.push({ path: `checks[${index}].citedUrl`, message: 'needs cited: true' });
+  });
+  checkUniqueBy(bundle.checks, (row) => `${row.question}/${row.engine}/${row.checkedOn}`, 'checks', issues);
+}
+
+function checkSeoScorecard(bundle, issues) {
+  (Array.isArray(bundle.months) ? bundle.months : []).forEach((month, index) => checkUniqueBy(month.scores, (row) => row.dimension, `months[${index}].scores`, issues));
+  checkUniqueBy(bundle.months, (row) => row.month, 'months', issues);
+}
+
+function summarizeSeoPlan(data) {
+  const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+  const byStatus = {};
+  for (const task of tasks) byStatus[task.status] = (byStatus[task.status] || 0) + 1;
+  return {
+    plan: data.plan ? { title: data.plan.title, site: data.plan.site, syncedAt: data.plan.syncedAt } : null,
+    tasks: tasks.length,
+    byStatus,
+    keywords: countOf(data.keywords),
+    questions: countOf(data.questions),
+    scorecards: countOf(data.scorecards),
+    metrics: countOf(data.metrics),
+    members: countOf(data.members),
+  };
+}
+
 function exifRotated(bytes, at) {
   if (bytes.toString('latin1', at + 4, at + 10) !== 'Exif\0\0') return false;
   return tiffRotated(bytes, at + 10);
@@ -1450,6 +1727,20 @@ const BUNDLES = {
   'ad-iteration': { schema: AD_ITERATION_SCHEMA, counts: () => ({ iterations: 1 }) },
   'creative-review': { schema: AD_CREATIVE_SCHEMA, counts: () => ({ creatives: 1 }) },
   'creative-revision': { schema: AD_REVISION_SCHEMA, counts: () => ({ revisions: 1 }) },
+  'seo-plan': {
+    schema: SEO_PLAN_SCHEMA,
+    check: checkSeoPlanBundle,
+    counts: (bundle) => ({ phases: countOf(bundle.plan && bundle.plan.phases), tasks: countOf(bundle.tasks), keywords: countOf(bundle.keywords), questions: countOf(bundle.questions) }),
+  },
+  'seo-task-update': { schema: SEO_TASK_UPDATE_SCHEMA, check: checkSeoTaskUpdate, counts: () => ({ tasks: 1 }) },
+  'seo-metrics': { schema: SEO_METRICS_SCHEMA, check: checkSeoMetrics, counts: (bundle) => ({ days: countOf(bundle.rows) }) },
+  'seo-keyword-stats': {
+    schema: SEO_KEYWORD_STATS_SCHEMA,
+    check: checkSeoKeywordStats,
+    counts: (bundle) => ({ keywords: countOf(bundle.rows) }),
+  },
+  'seo-question-checks': { schema: SEO_CHECKS_SCHEMA, check: checkSeoChecks, counts: (bundle) => ({ checks: countOf(bundle.checks) }) },
+  'seo-scorecard': { schema: SEO_SCORECARD_SCHEMA, check: checkSeoScorecard, counts: (bundle) => ({ months: countOf(bundle.months) }) },
   ...adBundles(),
   posts: {
     schema: POSTS_SCHEMA,
@@ -1464,7 +1755,7 @@ const BUNDLES = {
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
   captures: { schema: RESEARCH_CAPTURES_SCHEMA, check: checkCapturesBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -1798,7 +2089,8 @@ function sendFile(kind, route, options) {
 const productRoute = (suffix = '') => (parsed) => `${brandRoute('/ad-book/products')(parsed)}/${segment(requireOption(parsed, 'id'))}${suffix}`;
 const adRuleRoute = (parsed) => `${brandRoute('/ad-book/rules')(parsed)}/${segment(requireOption(parsed, 'id'))}`;
 const creativeRoute = (suffix = '') => (parsed) => `${brandRoute('/ad-review/creatives')(parsed)}/${segment(requireOption(parsed, 'id'))}${suffix}`;
-const iterationCreativesRoute = (parsed) => `${brandRoute('/ad-review/iterations')(parsed)}/${segment(requireOption(parsed, 'iteration'))}/creatives`;
+const seoTaskRoute = (parsed) => `${brandRoute('/seo/tasks')(parsed)}/${segment(requireOption(parsed, 'task'))}`;
+const iterationCreativesRoute =(parsed) => `${brandRoute('/ad-review/iterations')(parsed)}/${segment(requireOption(parsed, 'iteration'))}/creatives`;
 
 const COMMANDS = {
   setup: runSetup,
@@ -1955,6 +2247,14 @@ const COMMANDS = {
   'creative:get': get(creativeRoute()),
   'creative:regions': withConfig(writeRegionFiles),
   'creative:revise': withConfig((parsed, config) => sendWithImage(parsed, config, 'creative-revision', creativeRoute('/revisions'))),
+  'seo:plan': getToFile(brandRoute('/seo'), (parsed) => ({ metricsDays: integerOption(parsed, 'metrics-days', 1, 730) }), summarizeSeoPlan),
+  'seo:plan:sync': sendFile('seo-plan', brandRoute('/seo'), (parsed) => ({ method: 'PUT', extra: flagOption(parsed, 'prune') ? { prune: true } : {} })),
+  'seo:task': get(seoTaskRoute),
+  'seo:task:update': sendFile('seo-task-update', seoTaskRoute, () => ({ method: 'PATCH' })),
+  'seo:metrics:push': sendFile('seo-metrics', brandRoute('/seo/metrics')),
+  'seo:keywords:push': sendFile('seo-keyword-stats', brandRoute('/seo/keywords/stats')),
+  'seo:questions:check': sendFile('seo-question-checks', brandRoute('/seo/questions/checks')),
+  'seo:scorecard:push': sendFile('seo-scorecard', brandRoute('/seo/scorecards')),
   schema: async (args) => {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
@@ -2021,6 +2321,14 @@ const COMMANDS = {
       'creative:get': '--brand <brandId> --id <creativeId>',
       'creative:regions': '--brand <brandId> --id <creativeId> --out <dir>',
       'creative:revise': '--brand <brandId> --id <creativeId> --file <revision.json> --image <image.jpg|png|webp> [--dry-run]',
+      'seo:plan': '--brand <brandId> [--metrics-days 1..730] [--out <file>]',
+      'seo:plan:sync': '--brand <brandId> --file <plan.json> [--prune] [--dry-run]',
+      'seo:task': '--brand <brandId> --task <taskKey>',
+      'seo:task:update': '--brand <brandId> --task <taskKey> --file <update.json> [--dry-run]',
+      'seo:metrics:push': '--brand <brandId> --file <metrics.json> [--dry-run]',
+      'seo:keywords:push': '--brand <brandId> --file <keywords.json> [--dry-run]',
+      'seo:questions:check': '--brand <brandId> --file <checks.json> [--dry-run]',
+      'seo:scorecard:push': '--brand <brandId> --file <scorecard.json> [--dry-run]',
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
     env: ['BICHON_AGENT_API_KEY', 'BICHON_AGENT_BASE_URL', 'BICHON_CONFIG_PATH'],

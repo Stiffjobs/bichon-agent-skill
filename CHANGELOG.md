@@ -3,6 +3,23 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.18.0 (2026-11-18)
+
+- SEO / GEO plan. `seo:plan:sync` creates or updates a brand's plan (phases
+  in dates with their weeks, scorecard dimensions) and upserts tasks,
+  keywords and AI questions by key; `--prune` removes what a complete list
+  leaves out, otherwise missing rows are kept. Tasks carry `number`,
+  `doneCriteria`, `owner` (agency, brand or both), `order` and dated `notes`.
+- A sync never changes a task's assignee, status or delivery unless the task
+  carries a `working` block. `seo:task:update` reports work done locally
+  (status, assignee by email or user id, delivery, completion day, a note);
+  `seo:plan` and `seo:task` read the working state people set back.
+- `seo:metrics:push` (daily impressions, clicks and average position),
+  `seo:keywords:push` (rank, with `null` for "not in the top N"),
+  `seo:questions:check` (mentioned, cited, cited URL and accuracy per engine)
+  and `seo:scorecard:push` (monthly scores per dimension).
+- Needs the matching app deploy: these commands 404 on an older one.
+
 ## 0.17.0 (2026-11-10)
 
 - `creative:submit` and `creative:revise` take `ruleFlags: [{ ruleId, note }]`:

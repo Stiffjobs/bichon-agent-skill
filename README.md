@@ -6,7 +6,8 @@ shell command). The agent reads a campaign's context and collected research
 through the Bichon agent API, analyzes the research, does the thinking and
 writing itself, and submits analyses and posts (each with one caption per
 target account) back. It also reads a brand's Meta ad performance and builds
-Meta ad campaigns, ad sets, creatives and ads, all created paused.
+Meta ad campaigns, ad sets, creatives and ads, all created paused, and syncs
+a brand's SEO / GEO plan with its Search Console numbers and AI-answer checks.
 Bichon stays the system of record: managers review, schedule and publish in
 the dashboard, and only a manager activates ads. The skill never publishes
 and never starts ad spend.
@@ -145,6 +146,24 @@ $S creative:list --brand <brandId>                             # changes_request
 $S creative:regions --brand <brandId> --id <id> --out work/r1  # overlay.png, region-N.png, regions.json
 $S creative:revise --brand <brandId> --id <id> --file work/revision.json --image work/f0-v2.png
 ```
+
+SEO / GEO plan (run the plan locally, sync it into Bichon, where the client
+follows progress and the agency assigns and delivers; see the SEO / GEO plan
+section of SKILL.md):
+
+```bash
+$S seo:plan --brand <brandId> --out work/seo.json        # read assignee, status and delivery back first
+$S seo:plan:sync --brand <brandId> --file work/plan.json # upsert phases, tasks, keywords, questions by key
+$S seo:task:update --brand <brandId> --task 1.4 --file work/done.json   # work done locally
+$S seo:metrics:push --brand <brandId> --file work/gsc-daily.json        # Search Console by day
+$S seo:keywords:push --brand <brandId> --file work/ranks.json
+$S seo:questions:check --brand <brandId> --file work/ai-checks.json     # ChatGPT, Gemini, Google AI Overview
+$S seo:scorecard:push --brand <brandId> --file work/scorecard.json
+```
+
+A sync never overwrites the assignee, status or delivery people set in
+Bichon; tasks, keywords and questions a sync leaves out are kept unless you
+pass `--prune` with the complete lists.
 
 Everything is created `PAUSED`; `ads:update` can pause but never activate.
 Every ad carries a `brief` (the angle and hook it tests, and optionally the
