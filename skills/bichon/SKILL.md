@@ -1618,7 +1618,7 @@ The helper checks these before sending and names the offending path.
 | Creative | `title` 200, `angle` and `hook` 300, `format` and `utmCreative` 100 chars; `prompt` 20000, `onImageText` 4000 chars; ≤ 20 `ruleFlags`, `note` 500 chars; ≤ 20 revisions and 200 per iteration |
 | Revision `responseNote` | 2000 chars, required |
 | SEO plan | `title` 200 chars, `site` an http(s) URL, `goal` 4000; 1–12 `phases` (`title` 200, `description` 2000); ≤ 12 `dimensions` (`title` 100, weights summing to 100); `key`s are letters, digits, `.`, `-` or `_`, ≤ 64 |
-| SEO tasks | ≤ 200 per plan; `number` 20, `title` 300, `description` 4000, `doneCriteria` 1500 chars; ≤ 50 linked keywords and questions; ≤ 20 `notes` per sync, `text` 2000; delivery `note` 4000; a task keeps its newest 100 notes |
+| SEO tasks | ≤ 200 per plan; `number` 20, `title` 300, `description` 4000, `doneCriteria` 1500 chars; ≤ 50 linked keywords and questions; ≤ 20 `notes` per task and 300 across one sync, `text` 2000; delivery `note` 4000; a task keeps its newest 100 notes |
 | SEO keywords / questions | ≤ 500 keywords (`keyword` 200, `group` / `intent` 100) and ≤ 200 questions (`question` 1000, `topic` 100) per plan |
 | SEO pushes | ≤ 400 days of metrics, never in the future; ≤ 500 keyword rows; ≤ 600 checks (`engine` 40, `accuracyNote` 500), at most 8 engines per question and 200 checks kept per question; ≤ 24 scorecard months (`note` 2000, score `note` 500), 60 months kept |
 | `title` / `hook` / `treatment` | 200 / 1000 / 2000 chars |

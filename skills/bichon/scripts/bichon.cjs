@@ -1266,6 +1266,8 @@ function checkSeoPlanBundle(bundle, issues) {
     (Array.isArray(task.notes) ? task.notes : []).forEach((note, noteIndex) => checkRealDates([[`tasks[${index}].notes[${noteIndex}].date`, note && note.date]], issues));
   });
   checkUniqueBy(tasks, (row) => row.key, 'tasks', issues);
+  const noteTotal = tasks.reduce((sum, task) => sum + (Array.isArray(task.notes) ? task.notes.length : 0), 0);
+  if (noteTotal > 300) issues.push({ path: 'tasks', message: `one sync carries at most 300 notes across its tasks (has ${noteTotal}); send the rest in another sync` });
   checkUniqueBy(bundle.keywords, (row) => row.key, 'keywords', issues);
   checkUniqueBy(bundle.questions, (row) => row.key, 'questions', issues);
 }
