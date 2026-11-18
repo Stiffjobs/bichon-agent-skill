@@ -21,7 +21,8 @@ description: >
   review, and revises them against the reviewer's comments, changing only the
   image areas they marked. Syncs a brand's SEO / GEO plan (phases, tasks,
   keywords, AI questions, scorecard) from the local project, pushes Search
-  Console numbers and AI-answer checks, and reports task work done locally.
+  Console and GA4 numbers and AI-answer checks, and reports task work done
+  locally.
   Never publishes, never activates ads and never starts spend.
 last-updated: 2026-11-18
 allowed-tools: Bash(./scripts/bichon.cjs:*)
@@ -1045,11 +1046,12 @@ plan's definition; people own the working state.
 
 | Command | What it does |
 |---|---|
-| `seo:plan --brand <id> [--metrics-days 1..730] [--out file.json]` | The whole plan as Bichon has it: `{ plan, tasks, keywords, questions, scorecards, metrics, members }`. Each task carries the working state people set: `status`, `assignee` (`{ userId, name }`), `delivery` (`{ url, note, deliveredAt }`), `completedOn`, `noteCount` and `workingUpdatedBy` (`{ kind: member\|agent, name, agentName }`). `members` are the people a task can be assigned to (`userId`, `name`, `role`; no emails). `metrics` are the daily rows of the last `--metrics-days` (default 90). `--out` writes it to a file and prints counts and tasks by status |
+| `seo:plan --brand <id> [--metrics-days 1..730] [--out file.json]` | The whole plan as Bichon has it: `{ plan, tasks, keywords, questions, scorecards, metrics, analytics, members }`. Each task carries the working state people set: `status`, `assignee` (`{ userId, name }`), `delivery` (`{ url, note, deliveredAt }`), `completedOn`, `noteCount` and `workingUpdatedBy` (`{ kind: member\|agent, name, agentName }`). `members` are the people a task can be assigned to (`userId`, `name`, `role`; no emails). `metrics` (Search Console) and `analytics` (GA4, each field `null` when not pushed) are the daily rows of the last `--metrics-days` (default 90). `--out` writes it to a file and prints counts and tasks by status |
 | `seo:plan:sync --brand <id> --file plan.json [--prune] [--dry-run]` | Create or update the plan, its phases and scorecard dimensions, and upsert tasks, keywords and questions by `key`: `{ action, tasks, keywords, questions, notesAdded, workingUpdated }`, each count `{ created, updated, unchanged, removed }` |
 | `seo:task --brand <id> --task <key>` | One task with its dated `notes`, newest first |
 | `seo:task:update --brand <id> --task <key> --file update.json [--dry-run]` | Report work you did locally: status, assignee, delivery, completion day and/or one dated note: `{ changed, noteAdded, task }` |
 | `seo:metrics:push --brand <id> --file metrics.json [--dry-run]` | Upsert daily Search Console impressions, clicks and average position by day: `{ created, updated, unchanged, pruned }` |
+| `seo:analytics:push --brand <id> --file analytics.json [--dry-run]` | Upsert daily GA4 sessions and revenue (organic search, AI assistants, content pages) by day: `{ created, updated, unchanged, pruned }` |
 | `seo:keywords:push --brand <id> --file keywords.json [--dry-run]` | Current rank, impressions and clicks per keyword, with the previous period for the change: `{ updated, unchanged }` |
 | `seo:questions:check --brand <id> --file checks.json [--dry-run]` | What each AI assistant answered: mentioned, cited, cited URL and accuracy, one per question, engine and day: `{ created, updated, unchanged, pruned }` |
 | `seo:scorecard:push --brand <id> --file scorecard.json [--dry-run]` | Monthly scores per dimension (`null` is not scored yet): `{ created, updated, unchanged, pruned }` |
@@ -1091,6 +1093,21 @@ the plan's `timeZone`.
 (`seo:metrics:push`, at most 400 a call, never today's partial day). Keyword
 `position` is the current rank; `null` with `positionLimit` means "not in the
 top N", never 0. Bichon keeps two years of daily rows.
+
+**GA4.** Read GA4 on this machine too and push whole days with
+`seo:analytics:push` (at most 400 a call). Per day, any of:
+`organicSessions` / `organicRevenue` (sessions from organic search and their
+purchase revenue), `aiSessions` / `aiRevenue` (sessions referred by AI
+assistants such as ChatGPT or Gemini), `contentSessions` /
+`contentRevenue` (sessions that landed on the brand's content pages, the
+blog or articles). Sessions are whole numbers; revenue is in major units of
+the plan's `currency` (set `plan.currency`, e.g. `TWD`, on the plan sync, or
+the page shows plain numbers). Leave out a field you did not read rather
+than sending 0; a day's row is replaced whole, so send every field you have
+for it. GA4's last two days are usually still incomplete: leave them out, or
+push them again once they settle. GA4 days are stored apart from the Search
+Console ones, so the two lag independently; two years are kept from the
+newest GA4 day.
 
 **AI answers.** For each tracked question and engine (`chatgpt`, `gemini`,
 `google_ai_overview`, or another lower-case id), record whether the brand
@@ -1485,6 +1502,7 @@ only for work you know was done:
     "startDate": "2026-11-10",
     "endDate": "2027-02-01",
     "timeZone": "Asia/Taipei",
+    "currency": "TWD",
     "phases": [
       { "key": "p0", "title": "量測", "startDate": "2026-11-10", "endDate": "2026-11-16", "weekFrom": 1, "weekTo": 1 },
       { "key": "p1", "title": "技術修正", "startDate": "2026-11-10", "endDate": "2026-11-30", "weekFrom": 1, "weekTo": 3 }
@@ -1559,6 +1577,19 @@ Daily metrics (`seo:metrics:push`):
 }
 ```
 
+GA4 days (`seo:analytics:push`); revenue is in the plan's `currency`:
+
+```json
+{
+  "format": "bichon-seo-analytics/v1",
+  "agent": { "name": "claude-code" },
+  "rows": [
+    { "date": "2026-11-14", "organicSessions": 310, "organicRevenue": 18450, "aiSessions": 4, "aiRevenue": 0, "contentSessions": 260, "contentRevenue": 1290 },
+    { "date": "2026-11-15", "organicSessions": 295, "organicRevenue": 16200.5, "contentSessions": 241 }
+  ]
+}
+```
+
 Keyword stats (`seo:keywords:push`); `checkedOn` is the day you read them:
 
 ```json
@@ -1617,10 +1648,10 @@ The helper checks these before sending and names the offending path.
 | Ad rule | `text` 2000 chars; ≤ 20 accepted and 20 rejected examples of 500 chars |
 | Creative | `title` 200, `angle` and `hook` 300, `format` and `utmCreative` 100 chars; `prompt` 20000, `onImageText` 4000 chars; ≤ 20 `ruleFlags`, `note` 500 chars; ≤ 20 revisions and 200 per iteration |
 | Revision `responseNote` | 2000 chars, required |
-| SEO plan | `title` 200 chars, `site` an http(s) URL, `goal` 4000; 1–12 `phases` (`title` 200, `description` 2000); ≤ 12 `dimensions` (`title` 100, weights summing to 100); `key`s are letters, digits, `.`, `-` or `_`, ≤ 64 |
+| SEO plan | `title` 200 chars, `site` an http(s) URL, `goal` 4000, `currency` an ISO 4217 code in capitals; 1–12 `phases` (`title` 200, `description` 2000); ≤ 12 `dimensions` (`title` 100, weights summing to 100); `key`s are letters, digits, `.`, `-` or `_`, ≤ 64 |
 | SEO tasks | ≤ 200 per plan; `number` 20, `title` 300, `description` 4000, `doneCriteria` 1500 chars; ≤ 50 linked keywords and questions; ≤ 20 `notes` per task and 300 across one sync, `text` 2000; delivery `note` 4000; a task keeps its newest 100 notes |
 | SEO keywords / questions | ≤ 500 keywords (`keyword` 200, `group` / `intent` 100) and ≤ 200 questions (`question` 1000, `topic` 100) per plan |
-| SEO pushes | ≤ 400 days of metrics, never in the future; ≤ 500 keyword rows; ≤ 600 checks (`engine` 40, `accuracyNote` 500), at most 8 engines per question and 200 checks kept per question; ≤ 24 scorecard months (`note` 2000, score `note` 500), 60 months kept |
+| SEO pushes | ≤ 400 days of metrics, never in the future; ≤ 400 GA4 days, never in the future, each with at least one of the six fields (sessions whole numbers ≥ 0, revenue ≥ 0 in major units); ≤ 500 keyword rows; ≤ 600 checks (`engine` 40, `accuracyNote` 500), at most 8 engines per question and 200 checks kept per question; ≤ 24 scorecard months (`note` 2000, score `note` 500), 60 months kept |
 | `title` / `hook` / `treatment` | 200 / 1000 / 2000 chars |
 | `audienceBenefit` / `limitation` / `coreMessage` | 300 chars each |
 | `whyNow` | 2000 chars |

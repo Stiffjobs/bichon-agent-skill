@@ -33,6 +33,7 @@ test('maps the SEO commands to their routes', async () => {
     [['seo:plan:sync', '--brand', 'b1', '--file', file(example('bichon-seo-plan/v1'))], 'PUT', '/agent/v1/brands/b1/seo'],
     [['seo:task:update', '--brand', 'b1', '--task', '0.1', '--file', file(example('bichon-seo-task-update/v1'))], 'PATCH', '/agent/v1/brands/b1/seo/tasks/0.1'],
     [['seo:metrics:push', '--brand', 'b1', '--file', file(example('bichon-seo-metrics/v1'))], 'POST', '/agent/v1/brands/b1/seo/metrics'],
+    [['seo:analytics:push', '--brand', 'b1', '--file', file(example('bichon-seo-analytics/v1'))], 'POST', '/agent/v1/brands/b1/seo/analytics'],
     [['seo:keywords:push', '--brand', 'b1', '--file', file(example('bichon-seo-keyword-stats/v1'))], 'POST', '/agent/v1/brands/b1/seo/keywords/stats'],
     [['seo:questions:check', '--brand', 'b1', '--file', file(example('bichon-seo-question-checks/v1'))], 'POST', '/agent/v1/brands/b1/seo/questions/checks'],
     [['seo:scorecard:push', '--brand', 'b1', '--file', file(example('bichon-seo-scorecard/v1'))], 'POST', '/agent/v1/brands/b1/seo/scorecards'],
@@ -59,6 +60,7 @@ test('the SEO example bundles in SKILL.md validate', async () => {
     ['seo:plan:sync', 'bichon-seo-plan/v1', []],
     ['seo:task:update', 'bichon-seo-task-update/v1', ['--task', '0.1']],
     ['seo:metrics:push', 'bichon-seo-metrics/v1', []],
+    ['seo:analytics:push', 'bichon-seo-analytics/v1', []],
     ['seo:keywords:push', 'bichon-seo-keyword-stats/v1', []],
     ['seo:questions:check', 'bichon-seo-question-checks/v1', []],
     ['seo:scorecard:push', 'bichon-seo-scorecard/v1', []],
@@ -116,6 +118,27 @@ test('bad SEO bundles fail locally and name the path', async () => {
     rows: [{ key: 'kw1', position: 0 }],
   })]);
   assert.equal(stats.code, 1);
+});
+
+test('GA4 days need at least one field, whole sessions and a real date; the plan currency is ISO 4217', async () => {
+  const push = (rows) => call(['seo:analytics:push', '--brand', 'b1', '--file', file({ format: 'bichon-seo-analytics/v1', agent: AGENT, rows })]);
+  const bad = await push([
+    { date: '2026-11-14' },
+    { date: '2026-02-30', organicSessions: 1.5, aiRevenue: -2 },
+    { date: '2026-11-14', contentRevenue: 10 },
+  ]);
+  assert.equal(bad.code, 1);
+  assert.equal(bad.requests.length, 0);
+  const paths = bad.json.error.details.issues.map((issue) => issue.path);
+  for (const expected of ['rows[0]', 'rows[1].date', 'rows[1].organicSessions', 'rows[1].aiRevenue', 'rows[2]']) assert.ok(paths.includes(expected), `${expected} in ${paths}`);
+  const good = await push([{ date: '2026-11-14', organicRevenue: 120.5 }]);
+  assert.equal(good.code, 0, good.stdout);
+  assert.deepEqual(good.requests[0].body.rows, [{ date: '2026-11-14', organicRevenue: 120.5 }]);
+
+  const plan = example('bichon-seo-plan/v1');
+  const lower = await call(['seo:plan:sync', '--brand', 'b1', '--dry-run', '--file', file({ ...plan, plan: { ...plan.plan, currency: 'twd' } })]);
+  assert.equal(lower.code, 1);
+  assert.ok(lower.json.error.details.issues.some((issue) => issue.path === 'plan.currency'));
 });
 
 test('a keyword out of the tracked range is a null position, not 0', async () => {

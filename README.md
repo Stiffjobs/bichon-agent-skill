@@ -7,7 +7,8 @@ through the Bichon agent API, analyzes the research, does the thinking and
 writing itself, and submits analyses and posts (each with one caption per
 target account) back. It also reads a brand's Meta ad performance and builds
 Meta ad campaigns, ad sets, creatives and ads, all created paused, and syncs
-a brand's SEO / GEO plan with its Search Console numbers and AI-answer checks.
+a brand's SEO / GEO plan with its Search Console and GA4 numbers and AI-answer
+checks.
 Bichon stays the system of record: managers review, schedule and publish in
 the dashboard, and only a manager activates ads. The skill never publishes
 and never starts ad spend.
@@ -156,6 +157,7 @@ $S seo:plan --brand <brandId> --out work/seo.json        # read assignee, status
 $S seo:plan:sync --brand <brandId> --file work/plan.json # upsert phases, tasks, keywords, questions by key
 $S seo:task:update --brand <brandId> --task 1.4 --file work/done.json   # work done locally
 $S seo:metrics:push --brand <brandId> --file work/gsc-daily.json        # Search Console by day
+$S seo:analytics:push --brand <brandId> --file work/ga4-daily.json      # GA4 sessions and revenue by day
 $S seo:keywords:push --brand <brandId> --file work/ranks.json
 $S seo:questions:check --brand <brandId> --file work/ai-checks.json     # ChatGPT, Gemini, Google AI Overview
 $S seo:scorecard:push --brand <brandId> --file work/scorecard.json

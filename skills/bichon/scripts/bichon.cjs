@@ -1075,6 +1075,7 @@ const SEO_PLAN_SCHEMA = adBundleSchema(
         startDate: seoDate,
         endDate: seoDate,
         timeZone: str(64),
+        currency: { type: 'string', pattern: '^[A-Z]{3}$', description: 'an ISO 4217 code in capitals (TWD, USD, JPY)' },
         phases: list(
           strictObject(
             {
@@ -1143,6 +1144,31 @@ const SEO_METRICS_SCHEMA = adBundleSchema(
   {
     rows: list(
       strictObject({ date: seoDate, impressions: seoCount, clicks: seoCount, position: seoPosition }, ['date', 'impressions', 'clicks']),
+      400,
+      { minItems: 1 },
+    ),
+  },
+  ['rows'],
+);
+const SEO_ANALYTICS_FIELDS = ['organicSessions', 'organicRevenue', 'aiSessions', 'aiRevenue', 'contentSessions', 'contentRevenue'];
+const seoRevenue = { type: 'number', minimum: 0, maximum: 1e12 };
+const SEO_ANALYTICS_SCHEMA = adBundleSchema(
+  'seo-analytics',
+  'SeoAnalytics',
+  {
+    rows: list(
+      strictObject(
+        {
+          date: seoDate,
+          organicSessions: seoCount,
+          organicRevenue: seoRevenue,
+          aiSessions: seoCount,
+          aiRevenue: seoRevenue,
+          contentSessions: seoCount,
+          contentRevenue: seoRevenue,
+        },
+        ['date'],
+      ),
       400,
       { minItems: 1 },
     ),
@@ -1279,6 +1305,16 @@ function checkSeoTaskUpdate(bundle, issues) {
   checkRealDates([['completedOn', bundle.completedOn], ['note.date', bundle.note && bundle.note.date]], issues);
 }
 
+function checkSeoAnalytics(bundle, issues) {
+  (Array.isArray(bundle.rows) ? bundle.rows : []).forEach((row, index) => {
+    checkRealDates([[`rows[${index}].date`, row && row.date]], issues);
+    if (row && typeof row === 'object' && SEO_ANALYTICS_FIELDS.every((field) => row[field] === undefined)) {
+      issues.push({ path: `rows[${index}]`, message: `needs at least one of ${SEO_ANALYTICS_FIELDS.join(', ')}` });
+    }
+  });
+  checkUniqueBy(bundle.rows, (row) => row.date, 'rows', issues);
+}
+
 function checkSeoKeywordStats(bundle, issues) {
   checkRealDates([['checkedOn', bundle.checkedOn]], issues);
   (Array.isArray(bundle.rows) ? bundle.rows : []).forEach((row, index) => {
@@ -1320,6 +1356,7 @@ function summarizeSeoPlan(data) {
     questions: countOf(data.questions),
     scorecards: countOf(data.scorecards),
     metrics: countOf(data.metrics),
+    analytics: countOf(data.analytics),
     members: countOf(data.members),
   };
 }
@@ -1736,6 +1773,7 @@ const BUNDLES = {
   },
   'seo-task-update': { schema: SEO_TASK_UPDATE_SCHEMA, check: checkSeoTaskUpdate, counts: () => ({ tasks: 1 }) },
   'seo-metrics': { schema: SEO_METRICS_SCHEMA, check: checkSeoMetrics, counts: (bundle) => ({ days: countOf(bundle.rows) }) },
+  'seo-analytics': { schema: SEO_ANALYTICS_SCHEMA, check: checkSeoAnalytics, counts: (bundle) => ({ days: countOf(bundle.rows) }) },
   'seo-keyword-stats': {
     schema: SEO_KEYWORD_STATS_SCHEMA,
     check: checkSeoKeywordStats,
@@ -1757,7 +1795,7 @@ const BUNDLES = {
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
   captures: { schema: RESEARCH_CAPTURES_SCHEMA, check: checkCapturesBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-analytics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -2254,6 +2292,7 @@ const COMMANDS = {
   'seo:task': get(seoTaskRoute),
   'seo:task:update': sendFile('seo-task-update', seoTaskRoute, () => ({ method: 'PATCH' })),
   'seo:metrics:push': sendFile('seo-metrics', brandRoute('/seo/metrics')),
+  'seo:analytics:push': sendFile('seo-analytics', brandRoute('/seo/analytics')),
   'seo:keywords:push': sendFile('seo-keyword-stats', brandRoute('/seo/keywords/stats')),
   'seo:questions:check': sendFile('seo-question-checks', brandRoute('/seo/questions/checks')),
   'seo:scorecard:push': sendFile('seo-scorecard', brandRoute('/seo/scorecards')),
@@ -2328,6 +2367,7 @@ const COMMANDS = {
       'seo:task': '--brand <brandId> --task <taskKey>',
       'seo:task:update': '--brand <brandId> --task <taskKey> --file <update.json> [--dry-run]',
       'seo:metrics:push': '--brand <brandId> --file <metrics.json> [--dry-run]',
+      'seo:analytics:push': '--brand <brandId> --file <analytics.json> [--dry-run]',
       'seo:keywords:push': '--brand <brandId> --file <keywords.json> [--dry-run]',
       'seo:questions:check': '--brand <brandId> --file <checks.json> [--dry-run]',
       'seo:scorecard:push': '--brand <brandId> --file <scorecard.json> [--dry-run]',

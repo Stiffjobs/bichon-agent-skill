@@ -18,6 +18,11 @@ Run `npx skills update bichon` to get the latest.
   `seo:keywords:push` (rank, with `null` for "not in the top N"),
   `seo:questions:check` (mentioned, cited, cited URL and accuracy per engine)
   and `seo:scorecard:push` (monthly scores per dimension).
+- `seo:analytics:push` sends daily GA4 numbers, kept apart from Search
+  Console's: organic search, AI-assistant and content-page sessions and
+  revenue, each optional but at least one per day. `plan.currency` (ISO 4217)
+  says what the revenue is in; `seo:plan` returns the GA4 rows as
+  `analytics` beside `metrics`.
 - Needs the matching app deploy: these commands 404 on an older one.
 
 ## 0.17.0 (2026-11-10)
