@@ -88,6 +88,13 @@ test('bad SEO bundles fail locally and name the path', async () => {
   const paths = sync.json.error.details.issues.map((issue) => issue.path);
   for (const expected of ['plan.site', 'plan.dimensions', 'tasks[0].phase', 'tasks[1]']) assert.ok(paths.includes(expected), `${expected} in ${paths}`);
 
+  const malformed = await call(['seo:plan:sync', '--brand', 'b1', '--file', file({ ...plan, tasks: [null] })]);
+  assert.equal(malformed.code, 1);
+  assert.equal(malformed.json.error.code, 'validation_failed');
+  assert.ok(malformed.json.error.details.issues.some((issue) => issue.path === 'tasks[0]'));
+  const nullRow = await call(['seo:metrics:push', '--brand', 'b1', '--file', file({ format: 'bichon-seo-metrics/v1', agent: AGENT, rows: [null] })]);
+  assert.equal(nullRow.json.error.code, 'validation_failed');
+
   const empty = await call(['seo:task:update', '--brand', 'b1', '--task', '0.1', '--file', file({ format: 'bichon-seo-task-update/v1', agent: AGENT })]);
   assert.equal(empty.code, 1);
   assert.equal(empty.requests.length, 0);

@@ -1803,7 +1803,14 @@ function validateBundle(kind, bundle) {
   const isObject = bundle && typeof bundle === 'object' && !Array.isArray(bundle);
   const hints = retired && isObject ? retired(bundle) : [];
   validate(schema, bundle, '', issues);
-  if (check && isObject) check(bundle, issues);
+  if (check && isObject) {
+    // A check may trip over an entry the schema has already reported; that report stands.
+    try {
+      check(bundle, issues);
+    } catch (err) {
+      if (issues.length === 0) throw err;
+    }
+  }
   if (hints.length === 0) return issues;
   const hinted = new Set(hints.map((hint) => hint.path));
   return [...hints, ...issues.filter((issue) => !hinted.has(issue.path))];
