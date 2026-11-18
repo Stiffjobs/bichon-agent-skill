@@ -1052,7 +1052,7 @@ plan's definition; people own the working state.
 | `seo:task:update --brand <id> --task <key> --file update.json [--dry-run]` | Report work you did locally: status, assignee, delivery, completion day and/or one dated note: `{ changed, noteAdded, task }` |
 | `seo:metrics:push --brand <id> --file metrics.json [--dry-run]` | Upsert daily Search Console impressions, clicks and average position by day: `{ created, updated, unchanged, pruned }` |
 | `seo:analytics:push --brand <id> --file analytics.json [--dry-run]` | Upsert daily GA4 sessions and revenue (organic search, AI assistants, content pages) by day: `{ created, updated, unchanged, pruned }` |
-| `seo:keywords:push --brand <id> --file keywords.json [--dry-run]` | Current rank, impressions and clicks per keyword, with the previous period for the change: `{ updated, unchanged }` |
+| `seo:keywords:push --brand <id> --file keywords.json [--dry-run]` | Current rank, impressions and clicks per keyword, with the previous period for the change: `{ updated, unchanged }`. Each row replaces the keyword's whole snapshot, so a field it leaves out is cleared (`searchVolume` stays) |
 | `seo:questions:check --brand <id> --file checks.json [--dry-run]` | What each AI assistant answered: mentioned, cited, cited URL and accuracy, one per question, engine and day: `{ created, updated, unchanged, pruned }` |
 | `seo:scorecard:push --brand <id> --file scorecard.json [--dry-run]` | Monthly scores per dimension (`null` is not scored yet): `{ created, updated, unchanged, pruned }` |
 
@@ -1102,7 +1102,9 @@ assistants such as ChatGPT or Gemini), `contentSessions` /
 `contentRevenue` (sessions that landed on the brand's content pages, the
 blog or articles). Sessions are whole numbers; revenue is in major units of
 the plan's `currency` (set `plan.currency`, e.g. `TWD`, on the plan sync, or
-the page shows plain numbers). Leave out a field you did not read rather
+the page shows plain numbers). Once GA4 days are stored the currency is
+fixed: a sync that names another one is refused, and one that leaves it out
+keeps it. Leave out a field you did not read rather
 than sending 0; a day's row is replaced whole, so send every field you have
 for it. GA4's last two days are usually still incomplete: leave them out, or
 push them again once they settle. GA4 days are stored apart from the Search
