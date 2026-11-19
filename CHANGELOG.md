@@ -3,6 +3,18 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.19.0 (2026-11-19)
+
+- `seo:plan:sync` says why each keyword and AI question is tracked:
+  `rationale` (what it does for the brand, in words the client reads),
+  `evidence` (what it was picked on, as of the sync) and `evidenceTypes`
+  (up to 8 source names). Keywords also take `product`; questions take
+  `group`, `intent` and `expected` (what a correct answer says or names, which
+  the reviewer marks accuracy by). The app shows them in a side sheet per
+  row, and `seo:plan` reads them back.
+- Like the other plan fields, a sync that leaves one of these out clears it.
+- Needs the matching app deploy: an older one refuses the new fields.
+
 ## 0.18.0 (2026-11-18)
 
 - SEO / GEO plan. `seo:plan:sync` creates or updates a brand's plan (phases

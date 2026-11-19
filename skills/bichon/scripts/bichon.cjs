@@ -1055,6 +1055,7 @@ const seoUrl = { ...str(2000), pattern: '^https?://', description: 'an http(s) U
 const seoCount = { type: 'integer', minimum: 0, maximum: 1e12 };
 const seoPosition = { type: 'number', minimum: 1, maximum: 1000 };
 const seoNote = strictObject({ date: seoDate, text: str(2000) }, ['date', 'text']);
+const seoRationale = { rationale: str(1000, 0), evidence: str(2000, 0), evidenceTypes: list(str(40), 8) };
 const seoWorking = {
   status: { enum: SEO_TASK_STATUSES },
   assigneeEmail: { ...str(320), type: ['string', 'null'] },
@@ -1128,12 +1129,35 @@ const SEO_PLAN_SCHEMA = adBundleSchema(
     ),
     keywords: list(
       strictObject(
-        { key: seoKey, keyword: str(200), group: str(100, 0), intent: str(100, 0), targetUrl: seoUrl, searchVolume: seoCount },
+        {
+          key: seoKey,
+          keyword: str(200),
+          group: str(100, 0),
+          intent: str(100, 0),
+          targetUrl: seoUrl,
+          searchVolume: seoCount,
+          product: str(200, 0),
+          ...seoRationale,
+        },
         ['key', 'keyword'],
       ),
       500,
     ),
-    questions: list(strictObject({ key: seoKey, question: str(1000), topic: str(100, 0) }, ['key', 'question']), 200),
+    questions: list(
+      strictObject(
+        {
+          key: seoKey,
+          question: str(1000),
+          topic: str(100, 0),
+          group: str(100, 0),
+          intent: str(100, 0),
+          expected: str(2000, 0),
+          ...seoRationale,
+        },
+        ['key', 'question'],
+      ),
+      200,
+    ),
   },
   ['plan'],
 );

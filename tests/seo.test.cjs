@@ -148,6 +148,26 @@ test('GA4 days need at least one field, whole sessions and a real date; the plan
   assert.ok(lower.json.error.details.issues.some((issue) => issue.path === 'plan.currency'));
 });
 
+test('seo:plan:sync sends why each keyword and question is tracked and bounds it', async () => {
+  const plan = example('bichon-seo-plan/v1');
+  const sent = await call(['seo:plan:sync', '--brand', 'b1', '--file', file(plan)]);
+  assert.equal(sent.code, 0, sent.stdout);
+  const body = sent.requests[0].body;
+  assert.ok(body.keywords[0].rationale && body.keywords[0].evidence && body.keywords[0].product);
+  assert.ok(body.keywords[0].evidenceTypes.length);
+  assert.ok(body.questions[0].expected && body.questions[0].rationale && body.questions[0].group);
+
+  const bad = await call(['seo:plan:sync', '--brand', 'b1', '--dry-run', '--file', file({
+    ...plan,
+    keywords: [{ ...plan.keywords[0], rationale: 'x'.repeat(1001), evidenceTypes: Array.from({ length: 9 }, (_, index) => `t${index}`) }],
+    questions: [{ ...plan.questions[0], expected: 'x'.repeat(2001), why: 'unknown field' }],
+  })]);
+  assert.equal(bad.code, 1);
+  const paths = bad.json.error.details.issues.map((issue) => issue.path);
+  for (const expected of ['keywords[0].rationale', 'keywords[0].evidenceTypes', 'questions[0].expected']) assert.ok(paths.includes(expected), `${expected} in ${paths}`);
+  assert.ok(paths.some((path) => path.startsWith('questions[0]') && path.includes('why')), `unknown field in ${paths}`);
+});
+
 test('a keyword out of the tracked range is a null position, not 0', async () => {
   const result = await call(['seo:keywords:push', '--brand', 'b1', '--dry-run', '--file', file({
     format: 'bichon-seo-keyword-stats/v1',

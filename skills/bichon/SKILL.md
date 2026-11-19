@@ -24,7 +24,7 @@ description: >
   Console and GA4 numbers and AI-answer checks, and reports task work done
   locally.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-11-18
+last-updated: 2026-11-19
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -1544,14 +1544,44 @@ only for work you know was done:
     }
   ],
   "keywords": [
-    { "key": "kw-brand", "keyword": "品牌 評價", "group": "brand", "targetUrl": "https://www.example.com/reviews", "searchVolume": 1200 },
+    {
+      "key": "kw-brand",
+      "keyword": "品牌 評價",
+      "group": "brand",
+      "intent": "評價",
+      "targetUrl": "https://www.example.com/reviews",
+      "searchVolume": 1200,
+      "product": "全品牌",
+      "rationale": "準備購買的人最後一步會查評價，第 1 頁看到什麼直接影響會不會下單。",
+      "evidence": "Google 自動完成有「品牌 評價」；顧客在客服對話問過評價。",
+      "evidenceTypes": ["Google 自動完成", "顧客對話"]
+    },
     { "key": "kw-serum", "keyword": "抗老精華推薦", "group": "product", "searchVolume": 2400 }
   ],
   "questions": [
-    { "key": "q-brand", "question": "這個品牌的保養品評價怎麼樣？", "topic": "品牌" }
+    {
+      "key": "q-brand",
+      "question": "這個品牌的保養品評價怎麼樣？",
+      "topic": "品牌",
+      "group": "品牌事實",
+      "intent": "評價",
+      "expected": "引用近 2 年的第三方評價；商品用現行名稱。",
+      "rationale": "想買的人會問 AI 評價，AI 引用什麼直接影響會不會下單。",
+      "evidence": "Google 自動完成有「品牌 評價」。",
+      "evidenceTypes": ["Google 自動完成"]
+    }
   ]
 }
 ```
+
+**Why each keyword and question is tracked.** `rationale` says what the item
+does for the brand's growth, in words the client reads; `evidence` is what it
+was picked on, as of this sync. Leave a keyword's own Search Console numbers
+out of its `evidence`: the page shows the live ones beside it. `evidenceTypes` names the
+sources (up to 8, such as `GSC`, `Google 自動完成`, `顧客對話`, `品牌文件`).
+For a question, `expected` is what a correct answer says or names: the
+reviewer marks each check's accuracy by it. Like the other fields, a sync that
+leaves one out clears it.
 
 A task update (`seo:task:update`); send only what changed:
 
