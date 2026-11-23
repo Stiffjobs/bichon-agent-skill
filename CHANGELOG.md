@@ -3,6 +3,33 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.20.0 (2026-11-23)
+
+- Creative testing. A round of creatives now has a stage in the app (`open`,
+  `ready`, `live`, `concluded` or `closed`); creatives and revisions are
+  accepted only while it is `open`, and only a manager moves the stage.
+- An ad is tied to the reviewed creative it runs: `ads:create --kind ad` takes
+  `reviewCreativeId` with `reviewCreativeRevision` (the revision the ad was
+  built from), and `creative:ad:link` / `creative:ad:unlink` do the same for
+  an ad that already exists. A creative with linked ads is frozen until they
+  are unlinked.
+- When Meta accepted an ad but a later step failed, `ads:create` still returns
+  the ad id, lists the `incomplete` steps and prints `next`: the exact
+  `creative:ad:link` to run, or why not to link. Do not create the ad twice.
+- `creative:review:draft` drafts a live round's verdicts (`winner`, `iterate`,
+  `cut`, `inconclusive`, each with the creative's `revision`) and its review
+  (what worked, what did not, what the next round should do). The numbers
+  come from Meta through the app and the manager concludes; the agent sets
+  neither.
+- `creative:learnings --product` reads what earlier rounds concluded, without
+  numbers. A new round and a new creative can name what they build on with
+  `basedOnIterationId` and `basedOnCreativeId`.
+- SEO: a keyword takes `targetNote` (200 chars) when no single page is the
+  target, and each keyword-stats row takes `currentUrl`, the page it ranks
+  with now.
+- Needs the matching app deploy: an older one has none of these routes and
+  refuses the new fields.
+
 ## 0.19.0 (2026-11-19)
 
 - `seo:plan:sync` says why each keyword and AI question is tracked:

@@ -361,3 +361,71 @@ test('creative:regions explains what is missing for an image it cannot decode', 
   assert.equal(result.json.error.code, 'image_tool_missing');
   server.reply(() => ok({ echo: true }));
 });
+
+test('maps the testing commands to their routes', async () => {
+  const link = await call(['creative:ad:link', '--brand', 'b1', '--id', 'c1', '--ad', '120210000000000009', '--revision', '2', '--account', 'act_123']);
+  assert.equal(link.code, 0, link.stdout);
+  assert.equal(link.requests[0].method, 'POST');
+  assert.equal(link.requests[0].path, '/agent/v1/brands/b1/ad-review/creatives/c1/ads');
+  assert.deepEqual(link.requests[0].body, { adId: '120210000000000009', revision: 2 });
+  assert.equal(link.requests[0].query.accountId, '123');
+
+  const unlink = await call(['creative:ad:unlink', '--brand', 'b1', '--id', 'c1', '--ad', '120210000000000009']);
+  assert.equal(unlink.code, 0, unlink.stdout);
+  assert.equal(unlink.requests[0].method, 'DELETE');
+  assert.equal(unlink.requests[0].path, '/agent/v1/brands/b1/ad-review/creatives/c1/ads/120210000000000009');
+
+  const learnings = await call(['creative:learnings', '--brand', 'b1', '--product', 'p1', '--limit', '5']);
+  assert.equal(learnings.code, 0, learnings.stdout);
+  assert.equal(learnings.requests[0].method, 'GET');
+  assert.equal(learnings.requests[0].path, '/agent/v1/brands/b1/ad-review/learnings');
+  assert.deepEqual(learnings.requests[0].query, { productId: 'p1', limit: '5' });
+});
+
+test('creative:ad:link needs the revision the ad was built from', async () => {
+  const result = await call(['creative:ad:link', '--brand', 'b1', '--id', 'c1', '--ad', '120210000000000009']);
+  assert.equal(result.code, 1, result.stdout);
+  assert.equal(result.requests.length, 0);
+  assert.equal(result.json.error.code, 'invalid_request');
+  assert.match(result.json.error.message, /--revision/);
+});
+
+test('creative:review:draft puts the review and one verdict per creative', async () => {
+  const example = skillBlocks('json').map((block) => JSON.parse(block)).find((block) => block.format === 'bichon-ad-test-review/v1');
+  assert.ok(example, 'no ad-test-review example');
+  const bundle = { ...example, creatives: example.creatives.map((entry, index) => ({ ...entry, creativeId: `c${index + 1}` })) };
+
+  const dry = await call(['creative:review:draft', '--brand', 'b1', '--iteration', 'i1', '--file', file(bundle), '--dry-run']);
+  assert.equal(dry.code, 0, dry.stdout);
+  assert.equal(dry.requests.length, 0);
+  assert.deepEqual(dry.json.data.counts, { verdicts: 2, review: true });
+
+  const sent = await call(['creative:review:draft', '--brand', 'b1', '--iteration', 'i1', '--file', file(bundle)]);
+  assert.equal(sent.code, 0, sent.stdout);
+  assert.equal(sent.requests[0].method, 'PUT');
+  assert.equal(sent.requests[0].path, '/agent/v1/brands/b1/ad-review/iterations/i1/review');
+  assert.deepEqual(sent.requests[0].body, bundle);
+
+  const base = { format: 'bichon-ad-test-review/v1', agent: AGENT };
+  const bad = [
+    [{ ...base }, '(root)'],
+    [{ ...base, creatives: [{ creativeId: 'c1', verdict: 'winner' }] }, /creatives.*revision/],
+    [{ ...base, creatives: [{ creativeId: 'c1', revision: 1, verdict: 'great' }] }, /creatives.*verdict/],
+    [{ ...base, creatives: [{ creativeId: 'c1', revision: 1, verdict: 'cut' }, { creativeId: 'c1', revision: 1, verdict: 'winner' }] }, /creatives/],
+    [{ ...base, creatives: [{ creativeId: 'c1', revision: 1, verdict: 'cut', spend: 100 }] }, /creatives/],
+  ];
+  for (const [value, expected] of bad) {
+    const result = await call(['creative:review:draft', '--brand', 'b1', '--iteration', 'i1', '--file', file(value)]);
+    assert.equal(result.code, 1, JSON.stringify(value));
+    assert.equal(result.requests.length, 0);
+    const paths = result.json.error.details.issues.map((issue) => issue.path);
+    assert.ok(paths.some((entry) => (typeof expected === 'string' ? entry === expected : expected.test(entry))), paths.join(', '));
+  }
+});
+
+test('an iteration and a creative can name what they build on', async () => {
+  const iteration = await call(['creative:iteration:create', '--brand', 'b1', '--dry-run', '--file', file({ format: 'bichon-ad-iteration/v1', agent: AGENT, productId: 'p1', name: 'Round 2', basedOnIterationId: 'i1' })]);
+  assert.equal(iteration.code, 0, iteration.stdout);
+  const creative = await call(['creative:submit', '--brand', 'b1', '--iteration', 'i2', '--dry-run', '--image', imagePath(), '--file', file({ ...CREATIVE, creative: { ...CREATIVE.creative, basedOnCreativeId: 'c1' } })]);
+  assert.equal(creative.code, 0, creative.stdout);
+});

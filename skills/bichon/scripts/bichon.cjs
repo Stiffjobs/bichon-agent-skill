@@ -906,7 +906,19 @@ const AD_BRIEF_SCHEMA = strictObject(
 
 function checkAdParams(kind, mode, body, issues) {
   const { fields, required, createOnly, oneOf } = AD_PARAMS[kind];
-  const { brief, ...params } = body;
+  const { brief, reviewCreativeId, reviewCreativeRevision, ...params } = body;
+  if (reviewCreativeId !== undefined || reviewCreativeRevision !== undefined) {
+    if (kind !== 'ad' || mode !== 'create') {
+      issues.push({ path: reviewCreativeId === undefined ? 'reviewCreativeRevision' : 'reviewCreativeId', message: 'goes on a new ad only; link an existing ad with creative:ad:link' });
+    } else {
+      if (typeof reviewCreativeId !== 'string' || reviewCreativeId.trim() === '' || reviewCreativeId.length > 64) {
+        issues.push({ path: 'reviewCreativeId', message: 'must be the creativeId of an approved review creative (creative:list --status approved)' });
+      }
+      if (!Number.isInteger(reviewCreativeRevision) || reviewCreativeRevision < 1) {
+        issues.push({ path: 'reviewCreativeRevision', message: "is required with reviewCreativeId: the creative's revision you built the ad from (revision in creative:get)" });
+      }
+    }
+  }
   const briefed = brief !== undefined;
   if (briefed && kind !== 'ad') {
     issues.push({ path: 'brief', message: 'goes on ads only (--kind ad)' });
@@ -947,6 +959,11 @@ function checkAdParams(kind, mode, body, issues) {
 
 const countOf = (value) => (Array.isArray(value) ? value.length : 0);
 
+function checkTestReviewBundle(bundle, issues) {
+  if (!bundle.review && countOf(bundle.creatives) === 0) issues.push({ path: '(root)', message: 'needs review, creatives or both' });
+  checkUnique(bundle.creatives, 'creativeId', 'creatives', 'appears twice; give each creative one verdict', issues);
+}
+
 function adBundles() {
   const entry = (kind, mode) => ({
     schema: { type: 'object' },
@@ -960,6 +977,8 @@ function adBundles() {
 }
 
 const CREATIVE_STATUSES = ['changes_requested', 'submitted', 'approved', 'rejected'];
+const ITERATION_STATUSES = ['open', 'ready', 'live', 'concluded', 'closed'];
+const CREATIVE_VERDICTS = ['winner', 'iterate', 'cut', 'inconclusive'];
 const adCopySchema = strictObject({
   primaryText: str(5000),
   headline: str(255),
@@ -1008,7 +1027,12 @@ const AD_PRODUCT_SCHEMA = adBundleSchema('ad-product', 'AdProduct', { product: s
 const AD_PRODUCT_PATCH_SCHEMA = adBundleSchema('ad-product-patch', 'AdProductPatch', { patch: strictObject(adProductFields) }, ['patch']);
 const AD_RULE_SCHEMA = adBundleSchema('ad-rule', 'AdRule', { rule: strictObject(adRuleFields, ['kind', 'text']) }, ['rule']);
 const AD_RULE_PATCH_SCHEMA = adBundleSchema('ad-rule-patch', 'AdRulePatch', { patch: strictObject(adRuleFields) }, ['patch']);
-const AD_ITERATION_SCHEMA = adBundleSchema('ad-iteration', 'AdIteration', { productId: str(64), name: str(100), note: str(2000, 0) }, ['productId', 'name']);
+const AD_ITERATION_SCHEMA = adBundleSchema(
+  'ad-iteration',
+  'AdIteration',
+  { productId: str(64), name: str(100), note: str(2000, 0), basedOnIterationId: str(64) },
+  ['productId', 'name'],
+);
 const ruleFlagsSchema = list(strictObject({ ruleId: str(64), note: str(500) }, ['ruleId', 'note']), 20);
 const AD_CREATIVE_SCHEMA = adBundleSchema(
   'ad-creative',
@@ -1022,6 +1046,7 @@ const AD_CREATIVE_SCHEMA = adBundleSchema(
         format: str(100),
         utmCreative: { ...str(100), pattern: '^[a-z0-9][a-z0-9._-]*$' },
         copy: adCopySchema,
+        basedOnCreativeId: str(64),
       },
       ['title', 'angle', 'hook', 'format', 'utmCreative'],
     ),
@@ -1043,6 +1068,24 @@ const AD_REVISION_SCHEMA = adBundleSchema(
     ruleFlags: ruleFlagsSchema,
   },
   ['basedOnRevision', 'prompt', 'onImageText', 'responseNote'],
+);
+
+// A batch's performance review, drafted for the manager: verdicts and the
+// review text only; the numbers are Meta's and the manager concludes.
+const AD_TEST_REVIEW_SCHEMA = adBundleSchema(
+  'ad-test-review',
+  'AdTestReview',
+  {
+    review: strictObject({ worked: str(4000, 0), didntWork: str(4000, 0), nextBatch: str(4000, 0) }, ['worked', 'didntWork', 'nextBatch']),
+    creatives: list(
+      strictObject(
+        { creativeId: str(64), revision: { type: 'integer', minimum: 1 }, verdict: { enum: CREATIVE_VERDICTS }, note: str(2000, 0) },
+        ['creativeId', 'revision', 'verdict'],
+      ),
+      200,
+    ),
+  },
+  [],
 );
 
 const SEO_TASK_KINDS = ['measurement', 'technical', 'onpage', 'content', 'links', 'geo', 'other'];
@@ -1136,6 +1179,7 @@ const SEO_PLAN_SCHEMA = adBundleSchema(
           intent: str(100, 0),
           targetUrl: seoUrl,
           searchVolume: seoCount,
+          targetNote: str(200, 0),
           product: str(200, 0),
           ...seoRationale,
         },
@@ -1215,6 +1259,7 @@ const SEO_KEYWORD_STATS_SCHEMA = adBundleSchema(
           clicks: seoCount,
           previousImpressions: seoCount,
           previousClicks: seoCount,
+          currentUrl: seoUrl,
           periodStart: seoDate,
           periodEnd: seoDate,
           searchVolume: seoCount,
@@ -1790,6 +1835,11 @@ const BUNDLES = {
   'ad-iteration': { schema: AD_ITERATION_SCHEMA, counts: () => ({ iterations: 1 }) },
   'creative-review': { schema: AD_CREATIVE_SCHEMA, counts: () => ({ creatives: 1 }) },
   'creative-revision': { schema: AD_REVISION_SCHEMA, counts: () => ({ revisions: 1 }) },
+  'ad-test-review': {
+    schema: AD_TEST_REVIEW_SCHEMA,
+    check: checkTestReviewBundle,
+    counts: (bundle) => ({ verdicts: countOf(bundle.creatives), review: Boolean(bundle.review) }),
+  },
   'seo-plan': {
     schema: SEO_PLAN_SCHEMA,
     check: checkSeoPlanBundle,
@@ -1819,7 +1869,7 @@ const BUNDLES = {
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
   captures: { schema: RESEARCH_CAPTURES_SCHEMA, check: checkCapturesBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-analytics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'ad-test-review', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-analytics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -2145,12 +2195,36 @@ const idRoute = (collection, option, suffix = '') => (parsed) => `/${collection}
 const campaignRoute = (suffix) => idRoute('campaigns', 'campaign', suffix);
 const brandRoute = (suffix) => idRoute('brands', 'brand', suffix);
 
-async function submitBundle(parsed, config, kind, route, { method = 'POST', extra = {}, query } = {}) {
+async function submitBundle(parsed, config, kind, route, { method = 'POST', extra = {}, query, transform } = {}) {
   const bundle = loadBundle(parsed, kind);
   if (parsed['dry-run']) {
     return succeed({ valid: true, dryRun: true, bundle: kind, counts: BUNDLES[kind].counts(bundle) });
   }
-  return emit(await api(config, method, route, { body: { ...bundle, ...extra }, query }));
+  const result = await api(config, method, route, { body: { ...bundle, ...extra }, query });
+  return emit(transform ? transform(result) : result);
+}
+
+// The ad exists on Meta once Meta returned its id, whatever failed after:
+// say how to finish without creating a second ad.
+function adFollowUps(parsed) {
+  return (result) => {
+    const data = result && result.data;
+    if (!data || !Array.isArray(data.incomplete) || data.incomplete.length === 0) return result;
+    const review = data.reviewCreative;
+    const next = [`The ad ${data.id} was created on Meta (paused); do not run ads:create again.`];
+    if (review && review.linked === false) {
+      if (review.retry) {
+        const account = review.accountId ? ` --account ${review.accountId}` : '';
+        next.push(`Link it: ${SCRIPT} creative:ad:link --brand ${requireOption(parsed, 'brand')} --id ${review.creativeId} --ad ${data.id} --revision ${review.revision}${account}`);
+      } else {
+        next.push(`Do not link it: ${review.reason}`);
+      }
+    }
+    for (const step of data.incomplete) {
+      if (step.step !== 'link') next.push(`${step.step} did not complete: ${step.reason}`);
+    }
+    return { ...result, data: { ...data, next } };
+  };
 }
 
 function sendFile(kind, route, options) {
@@ -2161,7 +2235,8 @@ const productRoute = (suffix = '') => (parsed) => `${brandRoute('/ad-book/produc
 const adRuleRoute = (parsed) => `${brandRoute('/ad-book/rules')(parsed)}/${segment(requireOption(parsed, 'id'))}`;
 const creativeRoute = (suffix = '') => (parsed) => `${brandRoute('/ad-review/creatives')(parsed)}/${segment(requireOption(parsed, 'id'))}${suffix}`;
 const seoTaskRoute = (parsed) => `${brandRoute('/seo/tasks')(parsed)}/${segment(requireOption(parsed, 'task'))}`;
-const iterationCreativesRoute =(parsed) => `${brandRoute('/ad-review/iterations')(parsed)}/${segment(requireOption(parsed, 'iteration'))}/creatives`;
+const iterationRoute = (suffix) => (parsed) => `${brandRoute('/ad-review/iterations')(parsed)}/${segment(requireOption(parsed, 'iteration'))}${suffix}`;
+const iterationCreativesRoute = iterationRoute('/creatives');
 
 const COMMANDS = {
   setup: runSetup,
@@ -2284,7 +2359,10 @@ const COMMANDS = {
   ),
   'ads:create': withConfig((parsed, config) => {
     const kind = requiredEnumOption(parsed, 'kind', AD_KINDS);
-    return submitBundle(parsed, config, `ad-${kind}`, brandRoute(`/ads/${AD_SEGMENTS[kind]}`)(parsed), { query: { accountId: accountOption(parsed) } });
+    return submitBundle(parsed, config, `ad-${kind}`, brandRoute(`/ads/${AD_SEGMENTS[kind]}`)(parsed), {
+      query: { accountId: accountOption(parsed) },
+      transform: adFollowUps(parsed),
+    });
   }),
   'ads:update': withConfig((parsed, config) => {
     const kind = requiredEnumOption(parsed, 'kind', AD_UPDATE_KINDS);
@@ -2318,6 +2396,18 @@ const COMMANDS = {
   'creative:get': get(creativeRoute()),
   'creative:regions': withConfig(writeRegionFiles),
   'creative:revise': withConfig((parsed, config) => sendWithImage(parsed, config, 'creative-revision', creativeRoute('/revisions'))),
+  'creative:ad:link': withConfig(async (parsed, config) => {
+    const adId = metaIdOption(parsed, 'ad', true);
+    const revision = integerOption(parsed, 'revision', 1, 1000);
+    if (revision === undefined) throw new CliError('invalid_request', "Missing --revision <n>: the creative's revision the ad was built from (revision in creative:get).");
+    return emit(await api(config, 'POST', creativeRoute('/ads')(parsed), { body: { adId, revision }, query: { accountId: accountOption(parsed) } }));
+  }),
+  'creative:ad:unlink': del((parsed) => `${creativeRoute('/ads')(parsed)}/${metaIdOption(parsed, 'ad', true)}`),
+  'creative:review:draft': sendFile('ad-test-review', iterationRoute('/review'), () => ({ method: 'PUT' })),
+  'creative:learnings': get(
+    brandRoute('/ad-review/learnings'),
+    (parsed) => ({ productId: requireOption(parsed, 'product'), limit: integerOption(parsed, 'limit', 1, 20) }),
+  ),
   'seo:plan': getToFile(brandRoute('/seo'), (parsed) => ({ metricsDays: integerOption(parsed, 'metrics-days', 1, 730) }), summarizeSeoPlan),
   'seo:plan:sync': sendFile('seo-plan', brandRoute('/seo'), (parsed) => ({ method: 'PUT', extra: flagOption(parsed, 'prune') ? { prune: true } : {} })),
   'seo:task': get(seoTaskRoute),
@@ -2393,6 +2483,10 @@ const COMMANDS = {
       'creative:get': '--brand <brandId> --id <creativeId>',
       'creative:regions': '--brand <brandId> --id <creativeId> --out <dir>',
       'creative:revise': '--brand <brandId> --id <creativeId> --file <revision.json> --image <image.jpg|png|webp> [--dry-run]',
+      'creative:ad:link': '--brand <brandId> --id <creativeId> --ad <adId> --revision <n> [--account <accountId>]',
+      'creative:ad:unlink': '--brand <brandId> --id <creativeId> --ad <adId>',
+      'creative:review:draft': '--brand <brandId> --iteration <iterationId> --file <review.json> [--dry-run]',
+      'creative:learnings': '--brand <brandId> --product <productId> [--limit 1..20]',
       'seo:plan': '--brand <brandId> [--metrics-days 1..730] [--out <file>]',
       'seo:plan:sync': '--brand <brandId> --file <plan.json> [--prune] [--dry-run]',
       'seo:task': '--brand <brandId> --task <taskKey>',

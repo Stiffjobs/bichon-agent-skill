@@ -148,6 +148,17 @@ $S creative:regions --brand <brandId> --id <id> --out work/r1  # overlay.png, re
 $S creative:revise --brand <brandId> --id <id> --file work/revision.json --image work/f0-v2.png
 ```
 
+Creative testing (a round goes open → ready → live → concluded in the
+dashboard; the agent links ads and drafts, the manager pulls Meta's numbers
+and concludes; see the Creative testing section of SKILL.md):
+
+```bash
+$S creative:ad:link --brand <brandId> --id <creativeId> --ad <adId> --revision 2   # an ad made outside ads:create
+$S creative:ad:unlink --brand <brandId> --id <creativeId> --ad <adId>
+$S creative:review:draft --brand <brandId> --iteration <id> --file work/review.json  # verdicts + what worked
+$S creative:learnings --brand <brandId> --product <productId>   # what earlier rounds concluded, no numbers
+```
+
 SEO / GEO plan (run the plan locally, sync it into Bichon, where the client
 follows progress and the agency assigns and delivers; see the SEO / GEO plan
 section of SKILL.md):

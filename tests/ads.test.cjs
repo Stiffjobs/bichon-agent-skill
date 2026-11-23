@@ -418,3 +418,49 @@ test('--table adds a ranked Markdown table and the period comparison', async () 
     server.reply(echo);
   }
 });
+
+test('a review creative goes on a new ad only, with its revision', async () => {
+  const examples = adExamples();
+  const { reviewCreativeId: _id, reviewCreativeRevision: _revision, ...ad } = examples.ad;
+  const good = await call(['ads:create', '--brand', 'b1', '--kind', 'ad', '--dry-run', '--file', file({ ...ad, reviewCreativeId: 'c1', reviewCreativeRevision: 2 })]);
+  assert.equal(good.code, 0, good.stdout);
+  assertRejected(await call(['ads:create', '--brand', 'b1', '--kind', 'ad', '--file', file({ ...ad, reviewCreativeId: 'c1' })]), ['reviewCreativeRevision']);
+  assertRejected(await call(['ads:create', '--brand', 'b1', '--kind', 'campaign', '--file', file({ ...examples.campaign, reviewCreativeId: 'c1', reviewCreativeRevision: 1 })]), ['reviewCreativeId']);
+  assertRejected(await call(['ads:update', '--brand', 'b1', '--kind', 'ad', '--id', '120210000000000009', '--file', file({ name: 'n', reviewCreativeId: 'c1', reviewCreativeRevision: 1 })]), ['reviewCreativeId']);
+});
+
+test('ads:create says how to finish an ad Meta accepted without creating a second one', async () => {
+  const examples = adExamples();
+  const { reviewCreativeId: _id, reviewCreativeRevision: _revision, ...ad } = examples.ad;
+  const body = { ...ad, reviewCreativeId: 'c1', reviewCreativeRevision: 2 };
+  const created = { id: '120210000000000009', kind: 'ad', status: 'PAUSED' };
+  try {
+    server.reply(() => ({ status: 201, body: { ok: true, data: {
+      ...created,
+      incomplete: [{ step: 'link', reason: 'timed out' }, { step: 'record', reason: 'brief not stored' }],
+      reviewCreative: { creativeId: 'c1', linked: false, retry: true, revision: 2, accountId: 'act_1', reason: 'timed out' },
+    } } }));
+    const retry = await call(['ads:create', '--brand', 'b1', '--kind', 'ad', '--file', file(body)]);
+    assert.equal(retry.code, 0, retry.stdout);
+    const next = retry.json.data.next;
+    assert.match(next[0], /120210000000000009.*do not run ads:create again/);
+    assert.match(next[1], /creative:ad:link --brand b1 --id c1 --ad 120210000000000009 --revision 2 --account act_1/);
+    assert.match(next[2], /record did not complete: brief not stored/);
+
+    server.reply(() => ({ status: 201, body: { ok: true, data: {
+      ...created,
+      incomplete: [{ step: 'link', reason: 'the creative moved past revision 2' }],
+      reviewCreative: { creativeId: 'c1', linked: false, retry: false, revision: 2, reason: 'the creative moved past revision 2' },
+    } } }));
+    const stale = await call(['ads:create', '--brand', 'b1', '--kind', 'ad', '--file', file(body)]);
+    assert.equal(stale.code, 0, stale.stdout);
+    assert.match(stale.json.data.next[1], /Do not link it: the creative moved past revision 2/);
+    assert.ok(!stale.json.data.next.some((line) => line.includes('creative:ad:link')));
+
+    server.reply(() => ({ status: 201, body: { ok: true, data: created } }));
+    const clean = await call(['ads:create', '--brand', 'b1', '--kind', 'ad', '--file', file(body)]);
+    assert.equal(clean.json.data.next, undefined);
+  } finally {
+    server.reply(echo);
+  }
+});

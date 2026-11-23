@@ -19,12 +19,14 @@ description: >
   the brand, uploading the ad images and videos, all created paused. Keeps
   the brand book of products and rules, uploads generated ad creatives for
   review, and revises them against the reviewer's comments, changing only the
-  image areas they marked. Syncs a brand's SEO / GEO plan (phases, tasks,
+  image areas they marked; links the Meta ads to the creatives they run,
+  drafts each test round's verdicts and review, and builds the next round on
+  what earlier rounds concluded. Syncs a brand's SEO / GEO plan (phases, tasks,
   keywords, AI questions, scorecard) from the local project, pushes Search
   Console and GA4 numbers and AI-answer checks, and reports task work done
   locally.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-11-19
+last-updated: 2026-11-23
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -799,7 +801,26 @@ never go into post briefs or captions.
    existing post instead, send `object_story_id` (`<pageId>_<postId>`). Set
    `instagram_user_id` (the Page's `instagram.id`) to run on Instagram too.
 6. **Ad.** `ads:create --kind ad` with the ad set's id,
-   `"creative": { "creative_id": "<creative id>" }` and a `brief`.
+   `"creative": { "creative_id": "<creative id>" }` and a `brief`. When the
+   ad runs a creative approved in Creative review, add
+   `"reviewCreativeId": "<creativeId from creative:list>"` (Bichon's review
+   creative, not Meta's `creative_id`) and `"reviewCreativeRevision": <n>`,
+   the creative's `revision` you built the Meta creative from (from
+   `creative:get` or `creative:list`). The server checks it is approved and
+   still at that revision before Meta creates anything (409 otherwise: build
+   from the current version), then links the ad to it, and the response
+   carries `reviewCreative: { creativeId, accountId, revision, linked,
+   reason?, retry? }`. Once
+   Meta returns an `id` the ad exists (paused), even when a later step
+   failed: `incomplete` lists each step that did not finish (`record`,
+   `audit`, `link`) with its reason, and the helper prints what to do in
+   `next`. Never run `ads:create` again for it. When `linked` is `false`
+   and `retry` is `true`, fix what `reason` says and run the printed
+   `creative:ad:link` command. When `retry` is `false` the creative moved
+   past the version the ad was built from: do not link that ad (pause it if
+   needed), and build a new ad from the current version. A failed `record`
+   is repaired by sending the brief again with `ads:update --kind ad --id
+   <id>`.
 
 **The brief.** Every ad you create carries a `brief`: what the ad tests,
 written before the copy. Bichon keeps it (it never goes to Meta) with a
@@ -953,8 +974,8 @@ Ad (`--kind ad`; required `name`, `adset_id`, `creative.creative_id`,
 | `ads:account --brand <id> [--account <id>]` | The connected ad account (`currency`, `timezoneName`, `budgetUnitsPerCurrency`), its Pages with linked Instagram accounts, pixels and `warnings` |
 | `ads:insights --brand <id> [--account <id>] [--level account\|campaign\|adset\|ad] [--range today\|yesterday\|last_7d\|last_14d\|last_28d\|last_30d\|last_90d\|this_month\|last_month] [--since YYYY-MM-DD --until YYYY-MM-DD] [--daily] [--breakdown age\|gender\|country\|publisher_platform\|platform_position\|device_platform] [--campaign <id,...>] [--adset <id,...>] [--ad <id>] [--sort <metric> [--order asc\|desc]] [--compare] [--table] [--limit 1..500]` | Performance rows (default: campaign level, `last_28d`, 100 rows, Meta's order): `{ account, level, range, rows, truncated }`, plus `totals` and `previous` with `--compare` and a Markdown `table` with `--table` |
 | `ads:list --brand <id> [--account <id>] --kind campaigns\|adsets\|ads\|creatives [--campaign <id>] [--adset <id>] [--limit 1..200]` | The account's entities in Meta's field names (default 50): `{ items, truncated }`; `--campaign` filters ad sets and ads, `--adset` filters ads |
-| `ads:create --brand <id> [--account <id>] --kind campaign\|adset\|creative\|ad --file params.json [--dry-run]` | Validate the params locally, then create the entity paused: `{ id, kind, status: "PAUSED" }` (a creative has no status); an ad needs a `brief` |
-| `ads:update --brand <id> [--account <id>] --kind campaign\|adset\|ad --id <metaId> --file patch.json [--dry-run]` | Change some fields of a campaign, ad set or ad, or pause it, or replace an ad's `brief`: `{ id, kind, updated }` |
+| `ads:create --brand <id> [--account <id>] --kind campaign\|adset\|creative\|ad --file params.json [--dry-run]` | Validate the params locally, then create the entity paused: `{ id, kind, status: "PAUSED" }` (a creative has no status); an ad needs a `brief` and may name the approved review creative it runs (`reviewCreativeId`) |
+| `ads:update --brand <id> [--account <id>] --kind campaign\|adset\|ad --id <metaId> --file patch.json [--dry-run]` | Change some fields of a campaign, ad set or ad, or pause it, or replace an ad's `brief`: `{ id, kind, updated, incomplete? }`. `updated` lists only what was applied (Meta's fields, and `brief` once stored). When Meta took the fields but Bichon's record could not be refreshed, `incomplete: [{ step: "record", reason }]` says what is stale and the command to repair it; a brief-only update that could not be stored is an error, not a success |
 | `ads:media:add --brand <id> [--account <id>] --file <image or video> [--name <name>]` | Upload a JPEG or PNG (≤ 8 MB) or an MP4 or MOV (≤ 200 MB) to the ad account: `{ kind: "image", name, hash, url }` or `{ kind: "video", name, videoId }`, plus `contentType` and `bytes` |
 | `ads:media --brand <id> [--account <id>] [--kind image\|video] [--limit 1..200]` | The account's ad images (default) or videos: `{ items, truncated }` |
 | `ads:targeting --brand <id> [--account <id>] --type interest\|geo\|locale --q <text>` | Meta's targeting search, for the ids in `targeting`: `{ items }` |
@@ -980,13 +1001,17 @@ ad.
 | `ad-product:cutout --brand <id> --id <productId> --file <image> [--label <text>]` | Upload an official cutout (JPEG, PNG or WebP, ≤ 8 MB; at most 12): `{ cutoutId }` |
 | `ad-rule:import --brand <id> --file rule.json [--dry-run]` | Create a rule; the same product, kind and text updates it: `{ ruleId, action }` |
 | `ad-rule:update --brand <id> --id <ruleId> --file patch.json [--dry-run]` | Change or retire a rule |
-| `creative:iterations --brand <id> [--product <productId>]` | `{ iterations, truncated }`: rounds with `status` (`open`, `closed`) and counts per review status; without `--product`, the brand's newest 500 |
-| `creative:iteration:create --brand <id> --file iteration.json [--dry-run]` | Open a round; a repeated name returns the same one: `{ iterationId, action, status }` |
+| `creative:iterations --brand <id> [--product <productId>]` | `{ iterations, truncated }`: rounds with `status` (`open`, `ready`, `live`, `concluded`, `closed`; see Creative testing), counts per review status, `basedOnIterationId`, `liveAt` and `concludedAt`; without `--product`, the brand's newest 500 |
+| `creative:iteration:create --brand <id> --file iteration.json [--dry-run]` | Open a round, optionally built on an earlier round of the product (`basedOnIterationId`); a repeated name returns the same one: `{ iterationId, action, status }` |
 | `creative:submit --brand <id> --iteration <iterationId> --file creative.json --image <file> [--dry-run]` | Upload the image and submit the creative for review: `{ creativeId, revision: 1, status: "submitted" }`. The image's size is read from the file |
 | `creative:list --brand <id> [--status changes_requested\|submitted\|approved\|rejected] [--iteration <id>] [--limit 1..50] [--out file.json]` | Creatives by status (default `changes_requested`), each with `image` (`url`, `width`, `height`), `prompt`, `onImageText`, `ruleFlags`, `copy` and the `comments` on its current revision |
-| `creative:get --brand <id> --id <creativeId>` | One creative in the same shape |
+| `creative:get --brand <id> --id <creativeId>` | One creative in the same shape, with `basedOnCreativeId` and the Meta `ads` linked to it (`adId`, `accountId`) |
 | `creative:regions --brand <id> --id <creativeId> --out <dir>` | Write the image, an overlay with every box numbered, one crop per box and `regions.json` to `<dir>` |
 | `creative:revise --brand <id> --id <creativeId> --file revision.json --image <file> [--dry-run]` | Upload the new version and send it back to review: `{ creativeId, revision, status: "submitted" }` |
+| `creative:ad:link --brand <id> --id <creativeId> --ad <adId> --revision <n> [--account <accountId>]` | Link an existing Meta ad (one made in Ads Manager, or before the round) to the approved creative it runs, after checking it sits in the ad account. `--revision` is the creative's `revision` (from `creative:get`) the ad was built from; a creative at another revision refuses it (409): `{ creativeId, adId, accountId, action: "linked"\|"existing" }` |
+| `creative:ad:unlink --brand <id> --id <creativeId> --ad <adId>` | Remove a wrong link: `{ creativeId, adId, removed }` |
+| `creative:review:draft --brand <id> --iteration <iterationId> --file review.json [--dry-run]` | Draft a live round's review for the manager: verdicts and notes per creative and the review text: `{ iterationId, status, review, creatives }` |
+| `creative:learnings --brand <id> --product <productId> [--limit 1..20]` | What the product's concluded rounds settled, newest first (default 5): `{ productId, productName, batches: [{ iterationId, name, concludedAt, basedOnIterationId, review: { worked, didntWork, nextBatch }, creatives: [{ creativeId, title, angle, hook, format, verdict, note, basedOnCreativeId }] }], truncated }`; no numbers |
 
 **Before generating.** Read `ad-book` and follow it. Use the product's
 canonical name and never a banned one. Use each claim label as written and
@@ -1029,13 +1054,80 @@ states its own `ruleFlags`; leave them out when the new version clears them.
    anything you left alone and why.
 
 A rejected creative is final: do not revise or resubmit it. An approved one
-needs nothing. A 409 on a revise means the creative moved on or the round
-closed; pull it again and tell the manager rather than retrying.
+needs nothing. A 409 on a revise means the creative moved on or the round is
+no longer open; pull it again and tell the manager rather than retrying.
 
 **Importing a brand book.** Use `ad-product:import` per product, then
 `ad-rule:import` per rule, with `source` and `setOn` when the rule predates
 the import (who decided it, and the day). Show the manager what you are about
 to import before sending it.
+
+## Creative testing
+
+After review, a round is a test. Its `status` is the stage:
+
+- `open`: creatives are made and reviewed. Only an open round takes
+  creatives, revisions, comments and decisions; anywhere else a submit or
+  revise is a 409.
+- `ready`: review is settled; the approved creatives wait to be built as
+  Meta ads (paused, as always).
+- `live`: the ads are running. `liveAt` is when it first went live.
+- `concluded`: the manager wrote what the test showed.
+- `closed`: shelved.
+
+The manager moves a round between stages in the app. You read the stage
+(`creative:iterations`) and never change it.
+
+**Link every ad to the creative it runs.** When you build an ad for an
+approved creative, pass `reviewCreativeId` with `ads:create --kind ad`. For an
+ad that already exists, run `creative:ad:link` (the id must be an ad, not
+an ad set or campaign). One ad runs one creative; a creative runs as at
+most 10 ads. Links can change until the round concludes. Without links the
+manager's results stay empty. Bichon remembers the Meta creative each ad ran
+when it was linked: if someone replaces it in Ads Manager, the manager's
+pull leaves that ad out and says so. If the ad still shows this review
+creative, link it again with `creative:ad:link` (same creative and ad), which
+records the new Meta creative; otherwise unlink it. An ad Meta lists without
+a readable creative is left out too until a later pull can read it. A linked creative is frozen: its decision
+cannot be reset, it cannot be revised, and `ads:update` refuses a new
+`creative` for its ad (409); unlink first with `creative:ad:unlink`.
+
+**Results.** The manager pulls each creative's numbers from Meta in the app
+(spend, impressions, link CTR, cost per link click, purchases, ROAS, cost per
+result, summed over its linked ads). You never send numbers to Bichon.
+When the manager asks you to analyze the test, the round's saved figures in
+the app are the reference. To read an ad yourself, run `ads:insights --level
+ad --ad <adId> --account <accountId>` with the linked ad's `accountId` (from
+`creative:get`) and the days that ad's account covered (`--since` and
+`--until`; without them the command reads the last 28 days). The round shows
+one span for all its accounts; when its ads sit in ad accounts with different
+time zones, or you do not know each account's own days, quote the app's
+figures instead of recomputing them, since that span can add a day for some
+accounts. There, link CTR is link clicks over impressions and
+cost per link click is spend over link clicks, both worked out from the
+creative's summed counts, while `ads:insights` returns Meta's own rates, so
+the two can differ on the same days; quote the app's figures, or compute
+them the same way from `linkClicks`, `impressions` and `spend`.
+
+**Drafting the review.** While a round is `live` and the manager asks for it,
+draft with `creative:review:draft`: a `verdict` per creative that ran
+(`winner`, `iterate`, `cut` or `inconclusive`), the `revision` you judged
+(the creative's `revision` from `creative:list` or `creative:get`), and a
+one-line `note` saying
+why in words, and the round's `review` (`worked`, `didntWork`, `nextBatch`).
+Each send replaces that part of the draft. Leave `note` out to keep the
+note already stored (the manager's, perhaps); send `""` to clear it. Judge like with like and say
+when the data is too thin to call (Ads). Only the manager concludes; tell
+them the draft is ready.
+
+**The next round builds on the last.** Before planning a new round, read
+`creative:learnings --product <productId>` and start from the latest
+`nextBatch`: keep the `winner` angles and hooks, vary the `iterate` ones,
+drop the `cut` ones. Create the round with `basedOnIterationId` set to the
+round it builds on, and give each creative that reworks an earlier one
+`creative.basedOnCreativeId` (a creative of a round of the same product
+created before this one; not this round, and not a later one). Learnings carry conclusions only, never numbers; do not put ad
+numbers into briefs, prompts or copy.
 
 ## SEO / GEO plan
 
@@ -1441,15 +1533,16 @@ A rule (`ad-rule:import`; `ad-rule:update` takes
 `kind` is `visual`, `wording` or `compliance`; add `productId` for a rule
 about one product.
 
-An iteration:
+An iteration (`basedOnIterationId` is optional: the round it builds on):
 
 ```json
 {
   "format": "bichon-ad-iteration/v1",
   "agent": { "name": "claude-code" },
   "productId": "<productId>",
-  "name": "批次3",
-  "note": "F0 and F9, hand-held and LINE formats"
+  "name": "批次4",
+  "note": "F0 hand-held, three new hooks",
+  "basedOnIterationId": "<iterationId of 批次3>"
 }
 ```
 
@@ -1464,7 +1557,8 @@ A creative (`creative:submit` adds the image):
     "angle": "不喜歡擦面霜但想要潤亮",
     "hook": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的",
     "format": "手拿",
-    "utmCreative": "fullerene-f0-hand-v1"
+    "utmCreative": "fullerene-f0-hand-v1",
+    "basedOnCreativeId": "<optional: the earlier creative this reworks>"
   },
   "prompt": "The full prompt the image was generated from",
   "onImageText": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的\n精華乳質地的富勒烯抗老精華",
@@ -1484,6 +1578,29 @@ A revision (`creative:revise` adds the image):
   "prompt": "The prompt this version was generated from",
   "onImageText": "不喜歡擦面霜 但還是想讓臉潤潤亮亮的\n精華乳質地的富勒烯抗老精華",
   "responseNote": "1: enlarged the bottle only. 2: changed the label to 保濕舒緩. Everything else is unchanged."
+}
+```
+
+A round's review draft (`creative:review:draft`; send `review`,
+`creatives` or both; each creative once with the `revision` it judges,
+≤ 200, notes ≤ 2000 characters, each review part ≤ 4000). If any creative
+moved past the revision you sent, the whole draft is refused (409, the
+stale entries in `details.stale`); pull them again and judge the current
+versions:
+
+```json
+{
+  "format": "bichon-ad-test-review/v1",
+  "agent": { "name": "claude-code" },
+  "review": {
+    "worked": "Hand-held shots with the 不喜歡擦面霜 hook bought cheapest.",
+    "didntWork": "Ingredient-led headlines barely got link clicks.",
+    "nextBatch": "Three hand-held variants of the winning hook; drop the ingredient headline."
+  },
+  "creatives": [
+    { "creativeId": "<creativeId>", "revision": 2, "verdict": "winner", "note": "Cheapest purchases at similar spend." },
+    { "creativeId": "<creativeId>", "revision": 1, "verdict": "cut", "note": "Link clicks far behind the others." }
+  ]
 }
 ```
 
@@ -1583,6 +1700,14 @@ For a question, `expected` is what a correct answer says or names: the
 reviewer marks each check's accuracy by it. Like the other fields, a sync that
 leaves one out clears it.
 
+**Target and current page.** A keyword's `targetUrl` is the page it should
+rank with, on the brand's site or not (a third-party review counts). When no
+single page is the target, such as "recent third-party reviews", leave
+`targetUrl` out and say so in `targetNote` (200 chars). The page it ranks with
+now comes from Search Console: send it as `currentUrl` with each keyword-stats
+push, the page with the most clicks in the period (most impressions when none
+has clicks). Like the rest of a stats row, leaving it out clears it.
+
 A task update (`seo:task:update`); send only what changed:
 
 ```json
@@ -1630,7 +1755,7 @@ Keyword stats (`seo:keywords:push`); `checkedOn` is the day you read them:
   "agent": { "name": "claude-code" },
   "checkedOn": "2026-11-17",
   "rows": [
-    { "key": "kw-brand", "position": 2.4, "previousPosition": 3.1, "impressions": 900, "clicks": 120, "previousImpressions": 850, "previousClicks": 101, "periodStart": "2026-10-20", "periodEnd": "2026-11-16" },
+    { "key": "kw-brand", "position": 2.4, "previousPosition": 3.1, "impressions": 900, "clicks": 120, "previousImpressions": 850, "previousClicks": 101, "currentUrl": "https://www.example.com/pages/reviews", "periodStart": "2026-10-20", "periodEnd": "2026-11-16" },
     { "key": "kw-serum", "position": null, "positionLimit": 20 }
   ]
 }
