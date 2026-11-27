@@ -960,7 +960,7 @@ function checkAdParams(kind, mode, body, issues) {
 const countOf = (value) => (Array.isArray(value) ? value.length : 0);
 
 function checkTestReviewBundle(bundle, issues) {
-  if (!bundle.review && countOf(bundle.creatives) === 0) issues.push({ path: '(root)', message: 'needs review, creatives or both' });
+  if (!bundle.review && !bundle.next && countOf(bundle.creatives) === 0) issues.push({ path: '(root)', message: 'needs review, next, creatives or any of them together' });
   checkUnique(bundle.creatives, 'creativeId', 'creatives', 'appears twice; give each creative one verdict', issues);
 }
 
@@ -1114,11 +1114,14 @@ const AD_REVISION_SCHEMA = adBundleSchema(
 
 // A batch's performance review, drafted for the manager: verdicts and the
 // review text only; the numbers are Meta's and the manager concludes.
+const PACK_NEXT_DIRECTIONS = ['keep_running', 'new_hooks', 'new_formats', 'new_angle'];
 const AD_TEST_REVIEW_SCHEMA = adBundleSchema(
   'ad-test-review',
   'AdTestReview',
   {
     review: strictObject({ worked: str(4000, 0), didntWork: str(4000, 0), nextBatch: str(4000, 0) }, ['worked', 'didntWork', 'nextBatch']),
+    // A pack's next step. Stopping a pack is the manager's, so it is not offered here.
+    next: strictObject({ direction: { enum: PACK_NEXT_DIRECTIONS }, keepHook: str(300, 0), keepFormat: str(100, 0), note: str(2000, 0) }, ['direction']),
     creatives: list(
       strictObject(
         { creativeId: str(64), revision: { type: 'integer', minimum: 1 }, verdict: { enum: CREATIVE_VERDICTS }, note: str(2000, 0) },
@@ -1974,7 +1977,7 @@ const BUNDLES = {
   'ad-test-review': {
     schema: AD_TEST_REVIEW_SCHEMA,
     check: checkTestReviewBundle,
-    counts: (bundle) => ({ verdicts: countOf(bundle.creatives), review: Boolean(bundle.review) }),
+    counts: (bundle) => ({ verdicts: countOf(bundle.creatives), review: Boolean(bundle.review), next: Boolean(bundle.next) }),
   },
   'seo-plan': {
     schema: SEO_PLAN_SCHEMA,
@@ -2544,6 +2547,7 @@ const COMMANDS = {
     return emit(await api(config, 'POST', creativeRoute('/ads')(parsed), { body: { adId, revision }, query: { accountId: accountOption(parsed) } }));
   }),
   'creative:ad:unlink': del((parsed) => `${creativeRoute('/ads')(parsed)}/${metaIdOption(parsed, 'ad', true)}`),
+  'creative:pack:read': get(iterationRoute('/read')),
   'creative:review:draft': sendFile('ad-test-review', iterationRoute('/review'), () => ({ method: 'PUT' })),
   'creative:learnings': get(
     brandRoute('/ad-review/learnings'),
@@ -2633,6 +2637,7 @@ const COMMANDS = {
       'creative:revise': '--brand <brandId> --id <creativeId> --file <revision.json> --image <image.jpg|png|webp> [--dry-run]',
       'creative:ad:link': '--brand <brandId> --id <creativeId> --ad <adId> --revision <n> [--account <accountId>]',
       'creative:ad:unlink': '--brand <brandId> --id <creativeId> --ad <adId>',
+      'creative:pack:read': '--brand <brandId> --iteration <iterationId>',
       'creative:review:draft': '--brand <brandId> --iteration <iterationId> --file <review.json> [--dry-run]',
       'creative:learnings': '--brand <brandId> --product <productId> [--limit 1..20]',
       'seo:plan': '--brand <brandId> [--metrics-days 1..730] [--out <file>]',

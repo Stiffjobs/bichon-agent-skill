@@ -3,6 +3,22 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.24.0 (2026-11-27)
+
+- The day-7 review of a pack. `creative:pack:read` returns the pack as the ad
+  monitor has it: whether it is tested (live the brand's test days and spent
+  that many target CPAs), each variant group ranked by CPA with its leader,
+  a suggested verdict per creative and a suggested next step. A leader on
+  fewer than three purchases is flagged; nothing is called significant.
+- `creative:review:draft` takes `next`: `keep_running`, `new_hooks`,
+  `new_formats` or `new_angle`, with `keepHook`, `keepFormat` and a note.
+  `stop` is the manager's alone, and the agent still never concludes.
+- `creative:learnings` and the round reads return `next`, so the next pack is
+  built on it (`basedOnIterationId`, the kept hook as its main hook).
+- A pack that goes live gets a review item on the ad roadmap, due after the
+  brand's test days.
+- Needs the matching app deploy.
+
 ## 0.23.0 (2026-11-27)
 
 - Avatars: `avatar:list` and `avatar:upsert` keep the brand's avatars (who

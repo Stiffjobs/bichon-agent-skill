@@ -1017,8 +1017,9 @@ ad.
 | `creative:revise --brand <id> --id <creativeId> --file revision.json --image <file> [--dry-run]` | Upload the new version and send it back to review: `{ creativeId, revision, status: "submitted" }` |
 | `creative:ad:link --brand <id> --id <creativeId> --ad <adId> --revision <n> [--account <accountId>]` | Link an existing Meta ad (one made in Ads Manager, or before the round) to the approved creative it runs, after checking it sits in the ad account. `--revision` is the creative's `revision` (from `creative:get`) the ad was built from; a creative at another revision refuses it (409): `{ creativeId, adId, accountId, action: "linked"\|"existing" }` |
 | `creative:ad:unlink --brand <id> --id <creativeId> --ad <adId>` | Remove a wrong link: `{ creativeId, adId, removed }` |
-| `creative:review:draft --brand <id> --iteration <iterationId> --file review.json [--dry-run]` | Draft a live round's review for the manager: verdicts and notes per creative and the review text: `{ iterationId, status, review, creatives }` |
-| `creative:learnings --brand <id> --product <productId> [--limit 1..20]` | What the product's concluded rounds settled, newest first (default 5): `{ productId, productName, batches: [{ iterationId, name, concludedAt, basedOnIterationId, pack, review: { worked, didntWork, nextBatch }, creatives: [{ creativeId, title, angle, hook, format, variant, verdict, note, basedOnCreativeId }] }], truncated }`; no numbers |
+| `creative:pack:read --brand <id> --iteration <iterationId>` | A pack's day-7 read from the numbers the ad monitor stored (see The day-7 read): `{ state, tested, daysLive, minTestDays, spend, spendNeeded, targetCpa, currency, format, hook, next, reason, reviewNext, … }`. `format` and `hook` are `{ rows, leaderId, fewPurchases }`, each row a creative with `spend`, `purchases`, `cpa`, `roas`, the monitor's `standing`, the `suggested` verdict and the `verdict` set so far. A round that is not a pack answers 409 |
+| `creative:review:draft --brand <id> --iteration <iterationId> --file review.json [--dry-run]` | Draft a live round's review for the manager: verdicts and notes per creative, the review text and, for a pack, the `next` step: `{ iterationId, status, review, next, creatives }` |
+| `creative:learnings --brand <id> --product <productId> [--limit 1..20]` | What the product's concluded rounds settled, newest first (default 5): `{ productId, productName, batches: [{ iterationId, name, concludedAt, basedOnIterationId, pack, review: { worked, didntWork, nextBatch }, next, creatives: [{ creativeId, title, angle, hook, format, variant, verdict, note, basedOnCreativeId }] }], truncated }`; no numbers |
 
 **Before generating.** Read `ad-book` and follow it. Use the product's
 canonical name and never a banned one. Use each claim label as written and
@@ -1167,10 +1168,49 @@ note already stored (the manager's, perhaps); send `""` to clear it. Judge like 
 when the data is too thin to call (Ads). Only the manager concludes; tell
 them the draft is ready.
 
+**The day-7 read.** A pack that goes live gets a review item on the ad
+roadmap, due after the brand's test days (7 unless the manager changed
+them). Once it is due, and the manager asks, read `creative:pack:read`. It
+adds up each creative's linked ads over their whole life as the ad monitor
+stored them; you make no Meta call for it. It says:
+
+- **Tested or not** (`state`). A pack is `tested` after `minTestDays` days
+  live with at least `minTestDays` × the target CPA spent in all
+  (`spendNeeded`). `testing` means it is short of days or spend; `no_target`
+  means the brand has no target CPA in the ad account's currency. In both
+  no leader is declared and every suggested verdict is `inconclusive`: say
+  so, and do not call a winner yourself.
+- **Each test** (`format`, `hook`): its creatives ranked by CPA, those
+  without a purchase after them. `leaderId` names a creative only when the
+  pack is tested and that creative has a purchase, spent at least one target
+  CPA and has a CPA at or under target. `fewPurchases` marks a lead on fewer
+  than three purchases. A lead is a lead on these counts, never a
+  statistical result; quote the counts beside it.
+- **The suggested next step** (`next`, with `reason` in words):
+  `keep_running` (not tested yet), `new_hooks` (a format led: keep
+  `keepFormat` and `keepHook`, write three new hooks), `new_formats` (only a
+  hook led: `keepHook` becomes the main hook, test formats) or `new_angle`
+  (tested and nothing led: the same avatar, another angle).
+
+These numbers are the pack's own results, for the review. They do not go
+into briefs, prompts or copy.
+
+**A pack's loop, end to end.** Publish the approved creatives as ads (paused;
+the manager starts them) → link every ad (`creative:ad:link` or
+`reviewCreativeId`) → the manager moves the round to `live` → when the
+roadmap's review item is due, read `creative:pack:read` → draft with
+`creative:review:draft`: the verdicts (start from each row's `suggested`),
+the `review` text and `next` (`direction`, and the `keepHook` and
+`keepFormat` the next pack keeps; `stop` is the manager's alone) → the
+manager checks, edits and concludes → read `creative:learnings` → create
+the next pack with `basedOnIterationId`, `mainHook` set to that round's
+`next.keepHook` when it has one, and for `new_hooks` the hook variants in
+`next.keepFormat`.
+
 **The next round builds on the last.** Before planning a new round, read
 `creative:learnings --product <productId>` and start from the latest
-`nextBatch`: keep the `winner` angles and hooks, vary the `iterate` ones,
-drop the `cut` ones. Create the round with `basedOnIterationId` set to the
+`nextBatch` and, for a pack, its `next` step: keep the `winner` angles and
+hooks, vary the `iterate` ones, drop the `cut` ones. Create the round with `basedOnIterationId` set to the
 round it builds on, and give each creative that reworks an earlier one
 `creative.basedOnCreativeId` (a creative of a round of the same product
 created before this one; not this round, and not a later one). Learnings carry conclusions only, never numbers; do not put ad
@@ -1787,6 +1827,30 @@ versions:
   "creatives": [
     { "creativeId": "<creativeId>", "revision": 2, "verdict": "winner", "note": "Cheapest purchases at similar spend." },
     { "creativeId": "<creativeId>", "revision": 1, "verdict": "cut", "note": "Link clicks far behind the others." }
+  ]
+}
+```
+
+A pack's review draft adds the next step; send `next` alone to change only
+that (`keepHook` ≤ 300, `keepFormat` ≤ 100, `note` ≤ 2000 characters):
+
+```json
+{
+  "format": "bichon-ad-test-review/v1",
+  "agent": { "name": "claude-code" },
+  "review": {
+    "worked": "The split-screen format bought at 750 on 4 purchases, under the 1,000 target.",
+    "didntWork": "No hook variant met the target; the testimonial card got no purchase.",
+    "nextBatch": "Keep split-screen with the main hook and write three new hooks."
+  },
+  "next": {
+    "direction": "new_hooks",
+    "keepHook": "以前擦的都不能擦？",
+    "keepFormat": "對比",
+    "note": "Three new hooks in the split-screen format."
+  },
+  "creatives": [
+    { "creativeId": "<creativeId>", "revision": 1, "verdict": "winner", "note": "CPA 750 on 4 purchases." }
   ]
 }
 ```

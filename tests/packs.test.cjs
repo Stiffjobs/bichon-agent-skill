@@ -76,3 +76,22 @@ test('a creative names its variant or its angle', async () => {
   assert.notEqual(result.code, 0);
   assert.match(result.stdout, /variant/);
 });
+
+const reviewWithNext = () => examples().find((block) => block.format === 'bichon-ad-test-review/v1' && block.next);
+
+test('the pack read maps to its route', async () => {
+  const result = await call(['creative:pack:read', '--brand', 'b1', '--iteration', 'i1']);
+  assert.equal(result.code, 0, result.stdout);
+  assert.equal(result.requests[0].method, 'GET');
+  assert.equal(result.requests[0].path, '/agent/v1/brands/b1/ad-review/iterations/i1/read');
+});
+
+test('a review draft carries the next step, and an agent cannot send stop', async () => {
+  const bundle = reviewWithNext();
+  assert.ok(bundle, 'a review example with next');
+  const sent = await call(['creative:review:draft', '--brand', 'b1', '--iteration', 'i1', '--file', file(bundle), '--dry-run']);
+  assert.equal(sent.code, 0, sent.stdout);
+  const stop = await call(['creative:review:draft', '--brand', 'b1', '--iteration', 'i1', '--file', file({ ...bundle, next: { direction: 'stop' } })]);
+  assert.notEqual(stop.code, 0);
+  assert.equal(stop.requests.length, 0);
+});

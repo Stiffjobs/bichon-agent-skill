@@ -398,7 +398,7 @@ test('creative:review:draft puts the review and one verdict per creative', async
   const dry = await call(['creative:review:draft', '--brand', 'b1', '--iteration', 'i1', '--file', file(bundle), '--dry-run']);
   assert.equal(dry.code, 0, dry.stdout);
   assert.equal(dry.requests.length, 0);
-  assert.deepEqual(dry.json.data.counts, { verdicts: 2, review: true });
+  assert.deepEqual(dry.json.data.counts, { verdicts: 2, review: true, next: false });
 
   const sent = await call(['creative:review:draft', '--brand', 'b1', '--iteration', 'i1', '--file', file(bundle)]);
   assert.equal(sent.code, 0, sent.stdout);
