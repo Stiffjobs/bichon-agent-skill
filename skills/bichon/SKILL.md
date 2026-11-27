@@ -21,12 +21,14 @@ description: >
   review, and revises them against the reviewer's comments, changing only the
   image areas they marked; links the Meta ads to the creatives they run,
   drafts each test round's verdicts and review, and builds the next round on
-  what earlier rounds concluded. Syncs a brand's SEO / GEO plan (phases, tasks,
+  what earlier rounds concluded. Keeps the brand's ad roadmap: its events and
+  the tests and creative preparation planned around them, with due dates that
+  follow the events. Syncs a brand's SEO / GEO plan (phases, tasks,
   keywords, AI questions, scorecard) from the local project, pushes Search
   Console and GA4 numbers and AI-answer checks, and reports task work done
   locally.
   Never publishes, never activates ads and never starts spend.
-last-updated: 2026-11-23
+last-updated: 2026-11-27
 allowed-tools: Bash(./scripts/bichon.cjs:*)
 ---
 
@@ -115,7 +117,8 @@ code 1 on any failure. The API key is never printed.
 `--dry-run` runs only the local validation and sends nothing.
 
 The `ads:*` commands are listed under Ads, the `ad-book` and `creative:*`
-commands under Creative review, the `seo:*` commands under SEO / GEO plan.
+commands under Creative review, the `roadmap` commands under Ad roadmap, the
+`seo:*` commands under SEO / GEO plan.
 
 ## Intake
 
@@ -1129,6 +1132,52 @@ round it builds on, and give each creative that reworks an earlier one
 created before this one; not this round, and not a later one). Learnings carry conclusions only, never numbers; do not put ad
 numbers into briefs, prompts or copy.
 
+## Ad roadmap
+
+A brand's ad roadmap is the calendar the paid-ads work runs on: the brand's
+own events (a promotion, a launch) and the work items planned around them:
+tests of an avatar or angle, creative preparation, review, upload. People
+follow it in Bichon, where the agency assigns items, sets their status and
+adds events as the brand announces them. The brand's client does not see it.
+
+| Command | What it does |
+|---|---|
+| `roadmap --brand <id> [--out file.json]` | The roadmap as Bichon has it: `{ today, timeZone, events, items, members, prepTemplate }`. Each item carries `due` (the day it is due once `offsetDays` is counted from its event's `startDate`), its linked `product` and `round` (`{ iterationId, productId, name, status }`), and the working state people set: `status`, `assignee` (`{ userId, name }`), `completedOn` and `workingUpdatedBy`. `origin` says who created a row: `agent` or `app`. `today` is the day in the ad account's time zone (UTC without one). `--out` writes it to a file and prints counts and items by status |
+| `roadmap:sync --brand <id> --file roadmap.json [--prune] [--dry-run]` | Upsert events and items by `key`: `{ events, items, workingUpdated }`, each count `{ created, updated, unchanged, removed }` |
+| `roadmap:item:update --brand <id> --file update.json [--dry-run]` | Report work you did locally on one item (named by `key` in the file): status, assignee and/or completion day: `{ changed, item }` |
+
+**Events and due dates.** An event is a calendar range (`startDate` to
+`endDate`, `YYYY-MM-DD`). An item is due either on a fixed `dueDate` or
+`offsetDays` from its `event`'s start (negative is before: `-7` is one week
+ahead). Prefer `offsetDays` for preparation, so the work moves with the event
+when the brand moves it. `prepTemplate` is the standard preparation ahead of
+an event; use it unless the manager says otherwise: brief 14 days before,
+creatives done 7 days before, review approved 3 days before, uploaded paused
+the day before.
+
+**Items.** `kind` is `test`, `prep`, `launch`, `review` or `other`; `owner`
+is who does the work (`agency`, `brand` or `both`; `agency` when left out).
+A `test` item names what it tests in `avatar` and `angle` (free text, the
+labels the brand's avatar bank and angle table use) and, once the round
+exists, links it with `iterationId` (from `creative:iterations`); `productId`
+is from `ad-book`. Write `doneCriteria` so anyone can tell the item is done.
+
+**Who owns what.** The same split as the SEO plan: a sync carries each item's
+definition and never touches its assignee or status unless the item carries a
+`working` block. Run `roadmap` and read the working state back before a sync;
+send `working` (or `roadmap:item:update`) only for work you know was done.
+Assign with `assigneeEmail` or `assigneeUserId` from `members`; `null`
+unassigns. A sync replaces an item's whole definition, so a field it leaves
+out is cleared.
+
+**What a sync removes.** Nothing, without `--prune`. With `--prune`, the
+events and items an agent created that a list in the bundle leaves out are
+removed; a list the bundle omits is never pruned, and rows people added in the
+app (`origin: app`) always stay. When an event goes, the items that were due
+relative to it keep the day they were due as a fixed date. Managers add and
+move events in the app: read them back and plan around them, do not overwrite
+their dates from an older local copy.
+
 ## SEO / GEO plan
 
 A brand's SEO and GEO (AI-answer visibility) plan is run from a local project
@@ -1794,6 +1843,67 @@ A monthly scorecard (`seo:scorecard:push`):
 }
 ```
 
+### Ad roadmap bundles
+
+A roadmap sync (`roadmap:sync`); `events` and `items` are both optional:
+
+```json
+{
+  "format": "bichon-ad-roadmap/v1",
+  "agent": { "name": "claude-code" },
+  "events": [
+    {
+      "key": "xmas-2026",
+      "name": "聖誕奇遇季",
+      "kind": "promotion",
+      "startDate": "2026-12-08",
+      "endDate": "2026-12-30",
+      "note": "全館活動，主打禮盒"
+    }
+  ],
+  "items": [
+    {
+      "key": "xmas-2026.brief",
+      "kind": "prep",
+      "title": "活動 brief 與角度",
+      "owner": "agency",
+      "event": "xmas-2026",
+      "offsetDays": -14
+    },
+    {
+      "key": "xmas-2026.creatives",
+      "kind": "prep",
+      "title": "素材完成",
+      "doneCriteria": "每個角度 3 個 hook，全部送審",
+      "event": "xmas-2026",
+      "offsetDays": -7
+    },
+    {
+      "key": "test-a1-fragile",
+      "kind": "test",
+      "title": "測試 A1 產後媽媽 × 脆弱肌抗老",
+      "avatar": "A1 產後媽媽",
+      "angle": "F2 脆弱肌抗老",
+      "startDate": "2026-12-01",
+      "dueDate": "2026-12-08",
+      "working": { "status": "in_progress" }
+    }
+  ]
+}
+```
+
+An item update (`roadmap:item:update`); send only what changed:
+
+```json
+{
+  "format": "bichon-ad-roadmap-item-update/v1",
+  "agent": { "name": "claude-code" },
+  "key": "xmas-2026.creatives",
+  "status": "in_review",
+  "assigneeEmail": "member@example.com"
+}
+```
+
 ## Bounds
 
 The helper checks these before sending and names the offending path.
@@ -1809,6 +1919,7 @@ The helper checks these before sending and names the offending path.
 | SEO tasks | ≤ 200 per plan; `number` 20, `title` 300, `description` 4000, `doneCriteria` 1500 chars; ≤ 50 linked keywords and questions; ≤ 20 `notes` per task and 300 across one sync, `text` 2000; delivery `note` 4000; a task keeps its newest 100 notes |
 | SEO keywords / questions | ≤ 500 keywords (`keyword` 200, `group` / `intent` 100) and ≤ 200 questions (`question` 1000, `topic` 100) per plan |
 | SEO pushes | ≤ 400 days of metrics, never in the future; ≤ 400 GA4 days, never in the future, each with at least one of the six fields (sessions whole numbers ≥ 0, revenue ≥ 0 in major units); ≤ 500 keyword rows; ≤ 600 checks (`engine` 40, `accuracyNote` 500), at most 8 engines per question and 200 checks kept per question; ≤ 24 scorecard months (`note` 2000, score `note` 500), 60 months kept |
+| Ad roadmap | ≤ 50 events (`name` 200, `note` 2000, `endDate` not before `startDate`) and ≤ 200 items per brand (`title` 300, `description` 4000, `doneCriteria` 1500, `avatar` / `angle` 200); `offsetDays` a whole number from -365 to 365 and only with an `event`; `dueDate` or `offsetDays`, not both; `key`s are letters, digits, `.`, `-` or `_`, ≤ 64 |
 | `title` / `hook` / `treatment` | 200 / 1000 / 2000 chars |
 | `audienceBenefit` / `limitation` / `coreMessage` | 300 chars each |
 | `whyNow` | 2000 chars |

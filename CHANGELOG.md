@@ -3,6 +3,22 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.21.0 (2026-11-27)
+
+- Ad roadmap. `roadmap` reads a brand's events and the work items planned
+  around them; `roadmap:sync` upserts both by `key`; `roadmap:item:update`
+  reports work done locally on one item.
+- An item is due on a fixed `dueDate` or `offsetDays` from its event's
+  `startDate` (negative is before), so moving the event moves the item. The
+  read returns the resulting `due` day and `prepTemplate`, the standard
+  preparation ahead of an event (brief 14 days before, creatives 7, review
+  approved 3, uploaded paused 1).
+- A sync never overwrites the assignee, status or completion day people set
+  in Bichon unless the item carries a `working` block. With `--prune` it
+  removes only events and items an agent created; ones added in Bichon stay.
+- Bounds: 50 events and 200 items per brand.
+- Needs the matching app deploy: an older one has none of these routes.
+
 ## 0.20.0 (2026-11-23)
 
 - Creative testing. A round of creatives now has a stage in the app (`open`,

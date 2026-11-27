@@ -159,6 +159,16 @@ $S creative:review:draft --brand <brandId> --iteration <id> --file work/review.j
 $S creative:learnings --brand <brandId> --product <productId>   # what earlier rounds concluded, no numbers
 ```
 
+Ad roadmap (the brand's events and the tests and creative preparation
+planned around them; the agency follows it in Bichon, the client does not see
+it; see the Ad roadmap section of SKILL.md):
+
+```bash
+$S roadmap --brand <brandId> --out work/roadmap.json           # read status and assignees back first
+$S roadmap:sync --brand <brandId> --file work/roadmap.json     # upsert events and items by key
+$S roadmap:item:update --brand <brandId> --file work/done.json # work done locally on one item
+```
+
 SEO / GEO plan (run the plan locally, sync it into Bichon, where the client
 follows progress and the agency assigns and delivers; see the SEO / GEO plan
 section of SKILL.md):

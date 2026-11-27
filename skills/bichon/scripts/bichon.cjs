@@ -1206,6 +1206,54 @@ const SEO_PLAN_SCHEMA = adBundleSchema(
   ['plan'],
 );
 const SEO_TASK_UPDATE_SCHEMA = adBundleSchema('seo-task-update', 'SeoTaskUpdate', { ...seoWorking, note: seoNote }, []);
+const ROADMAP_EVENT_KINDS = ['promotion', 'launch', 'other'];
+const ROADMAP_ITEM_KINDS = ['test', 'prep', 'launch', 'review', 'other'];
+const roadmapWorking = {
+  status: { enum: SEO_TASK_STATUSES },
+  assigneeEmail: { ...str(320), type: ['string', 'null'] },
+  assigneeUserId: { ...str(64), type: ['string', 'null'] },
+  completedOn: { ...seoDate, type: ['string', 'null'] },
+};
+const AD_ROADMAP_SCHEMA = adBundleSchema(
+  'ad-roadmap',
+  'AdRoadmap',
+  {
+    prune: { type: 'boolean' },
+    events: list(
+      strictObject(
+        { key: seoKey, name: str(200), kind: { enum: ROADMAP_EVENT_KINDS }, startDate: seoDate, endDate: seoDate, note: str(2000, 0) },
+        ['key', 'name', 'startDate', 'endDate'],
+      ),
+      50,
+    ),
+    items: list(
+      strictObject(
+        {
+          key: seoKey,
+          kind: { enum: ROADMAP_ITEM_KINDS },
+          title: str(300),
+          description: str(4000, 0),
+          doneCriteria: str(1500, 0),
+          owner: { enum: SEO_TASK_OWNERS },
+          event: seoKey,
+          productId: str(64),
+          iterationId: str(64),
+          avatar: str(200, 0),
+          angle: str(200, 0),
+          startDate: seoDate,
+          dueDate: seoDate,
+          offsetDays: { type: 'integer', minimum: -365, maximum: 365 },
+          order: { type: 'number', minimum: 0, maximum: 100000 },
+          working: strictObject(roadmapWorking),
+        },
+        ['key', 'kind', 'title'],
+      ),
+      200,
+    ),
+  },
+  [],
+);
+const AD_ROADMAP_ITEM_UPDATE_SCHEMA = adBundleSchema('ad-roadmap-item-update', 'AdRoadmapItemUpdate', { key: seoKey, ...roadmapWorking }, ['key']);
 const SEO_METRICS_SCHEMA = adBundleSchema(
   'seo-metrics',
   'SeoMetrics',
@@ -1372,6 +1420,37 @@ function checkSeoTaskUpdate(bundle, issues) {
   if (fields.length === 0) issues.push({ path: '(root)', message: 'set status, assigneeEmail, assigneeUserId, delivery, completedOn or note' });
   if (bundle.assigneeEmail && bundle.assigneeUserId) issues.push({ path: '(root)', message: 'give assigneeEmail or assigneeUserId, not both' });
   checkRealDates([['completedOn', bundle.completedOn], ['note.date', bundle.note && bundle.note.date]], issues);
+}
+
+function checkAdRoadmap(bundle, issues) {
+  const events = Array.isArray(bundle.events) ? bundle.events : [];
+  events.forEach((event, index) => {
+    checkRealDates([[`events[${index}].startDate`, event.startDate], [`events[${index}].endDate`, event.endDate]], issues);
+    if (event.startDate && event.endDate && event.startDate > event.endDate) issues.push({ path: `events[${index}].endDate`, message: 'is before startDate' });
+  });
+  checkUniqueBy(events, (row) => row.key, 'events', issues);
+  const items = Array.isArray(bundle.items) ? bundle.items : [];
+  items.forEach((item, index) => {
+    checkRealDates([[`items[${index}].startDate`, item.startDate], [`items[${index}].dueDate`, item.dueDate], [`items[${index}].working.completedOn`, item.working && item.working.completedOn]], issues);
+    if (item.offsetDays !== undefined && item.dueDate !== undefined) issues.push({ path: `items[${index}]`, message: 'give dueDate or offsetDays, not both' });
+    if (item.offsetDays !== undefined && item.event === undefined) issues.push({ path: `items[${index}].offsetDays`, message: 'needs an event' });
+    if (item.working && item.working.assigneeEmail && item.working.assigneeUserId) issues.push({ path: `items[${index}].working`, message: 'give assigneeEmail or assigneeUserId, not both' });
+  });
+  checkUniqueBy(items, (row) => row.key, 'items', issues);
+}
+
+function checkAdRoadmapItemUpdate(bundle, issues) {
+  const fields = Object.keys(bundle).filter((key) => key !== 'format' && key !== 'agent' && key !== 'key');
+  if (fields.length === 0) issues.push({ path: '(root)', message: 'set status, assigneeEmail, assigneeUserId or completedOn' });
+  if (bundle.assigneeEmail && bundle.assigneeUserId) issues.push({ path: '(root)', message: 'give assigneeEmail or assigneeUserId, not both' });
+  checkRealDates([['completedOn', bundle.completedOn]], issues);
+}
+
+function summarizeAdRoadmap(data) {
+  const items = Array.isArray(data.items) ? data.items : [];
+  const byStatus = {};
+  for (const item of items) byStatus[item.status] = (byStatus[item.status] || 0) + 1;
+  return { today: data.today, events: countOf(data.events), items: items.length, byStatus };
 }
 
 function checkSeoAnalytics(bundle, issues) {
@@ -1846,6 +1925,8 @@ const BUNDLES = {
     counts: (bundle) => ({ phases: countOf(bundle.plan && bundle.plan.phases), tasks: countOf(bundle.tasks), keywords: countOf(bundle.keywords), questions: countOf(bundle.questions) }),
   },
   'seo-task-update': { schema: SEO_TASK_UPDATE_SCHEMA, check: checkSeoTaskUpdate, counts: () => ({ tasks: 1 }) },
+  'ad-roadmap': { schema: AD_ROADMAP_SCHEMA, check: checkAdRoadmap, counts: (bundle) => ({ events: countOf(bundle.events), items: countOf(bundle.items) }) },
+  'ad-roadmap-item-update': { schema: AD_ROADMAP_ITEM_UPDATE_SCHEMA, check: checkAdRoadmapItemUpdate, counts: () => ({ items: 1 }) },
   'seo-metrics': { schema: SEO_METRICS_SCHEMA, check: checkSeoMetrics, counts: (bundle) => ({ days: countOf(bundle.rows) }) },
   'seo-analytics': { schema: SEO_ANALYTICS_SCHEMA, check: checkSeoAnalytics, counts: (bundle) => ({ days: countOf(bundle.rows) }) },
   'seo-keyword-stats': {
@@ -1869,7 +1950,7 @@ const BUNDLES = {
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
   captures: { schema: RESEARCH_CAPTURES_SCHEMA, check: checkCapturesBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'ad-test-review', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-analytics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'ad-test-review', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-analytics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard', 'ad-roadmap', 'ad-roadmap-item-update'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -2417,6 +2498,9 @@ const COMMANDS = {
   'seo:keywords:push': sendFile('seo-keyword-stats', brandRoute('/seo/keywords/stats')),
   'seo:questions:check': sendFile('seo-question-checks', brandRoute('/seo/questions/checks')),
   'seo:scorecard:push': sendFile('seo-scorecard', brandRoute('/seo/scorecards')),
+  'roadmap': getToFile(brandRoute('/ad-roadmap'), undefined, summarizeAdRoadmap),
+  'roadmap:sync': sendFile('ad-roadmap', brandRoute('/ad-roadmap'), (parsed) => ({ method: 'PUT', extra: flagOption(parsed, 'prune') ? { prune: true } : {} })),
+  'roadmap:item:update': sendFile('ad-roadmap-item-update', brandRoute('/ad-roadmap/items'), () => ({ method: 'PATCH' })),
   schema: async (args) => {
     const parsed = parseArgs(args);
     const bundle = enumOption(parsed, 'bundle', SCHEMA_BUNDLES);
@@ -2496,6 +2580,9 @@ const COMMANDS = {
       'seo:keywords:push': '--brand <brandId> --file <keywords.json> [--dry-run]',
       'seo:questions:check': '--brand <brandId> --file <checks.json> [--dry-run]',
       'seo:scorecard:push': '--brand <brandId> --file <scorecard.json> [--dry-run]',
+      roadmap: '--brand <brandId> [--out <file>]',
+      'roadmap:sync': '--brand <brandId> --file <roadmap.json> [--prune] [--dry-run]',
+      'roadmap:item:update': '--brand <brandId> --file <update.json> [--dry-run]',
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,
     },
     env: ['BICHON_AGENT_API_KEY', 'BICHON_AGENT_BASE_URL', 'BICHON_CONFIG_PATH'],
