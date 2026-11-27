@@ -30,6 +30,7 @@ test('maps the roadmap commands to their routes', async () => {
   const cases = [
     [['roadmap', '--brand', 'b1'], 'GET', '/agent/v1/brands/b1/ad-roadmap'],
     [['roadmap:sync', '--brand', 'b1', '--file', file(example('bichon-ad-roadmap/v1'))], 'PUT', '/agent/v1/brands/b1/ad-roadmap'],
+    [['roadmap:item', '--brand', 'b1', '--key', 'xmas-2026.brief'], 'GET', '/agent/v1/brands/b1/ad-roadmap/items'],
     [['roadmap:item:update', '--brand', 'b1', '--file', file(example('bichon-ad-roadmap-item-update/v1'))], 'PATCH', '/agent/v1/brands/b1/ad-roadmap/items'],
   ];
   for (const [args, method, route] of cases) {
@@ -52,6 +53,15 @@ test('a roadmap past its bounds is refused before it is sent', async () => {
   const bundle = example('bichon-ad-roadmap/v1');
   const events = Array.from({ length: 51 }, (_, index) => ({ ...bundle.events[0], key: `e${index}` }));
   const result = await call(['roadmap:sync', '--brand', 'b1', '--file', file({ ...bundle, events })]);
+  assert.notEqual(result.code, 0);
+  assert.equal(result.requests.length, 0);
+});
+
+test('a sync with more than 20 notes is refused before it is sent', async () => {
+  const bundle = example('bichon-ad-roadmap/v1');
+  const notes = Array.from({ length: 11 }, (_, index) => ({ text: `note ${index}` }));
+  const items = bundle.items.slice(0, 2).map((item) => ({ ...item, notes }));
+  const result = await call(['roadmap:sync', '--brand', 'b1', '--file', file({ ...bundle, items })]);
   assert.notEqual(result.code, 0);
   assert.equal(result.requests.length, 0);
 });

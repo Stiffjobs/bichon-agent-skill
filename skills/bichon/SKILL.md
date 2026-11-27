@@ -1142,9 +1142,10 @@ adds events as the brand announces them. The brand's client does not see it.
 
 | Command | What it does |
 |---|---|
-| `roadmap --brand <id> [--out file.json]` | The roadmap as Bichon has it: `{ today, timeZone, events, items, members, prepTemplate }`. Each item carries `due` (the day it is due once `offsetDays` is counted from its event's `startDate`), its linked `product` and `round` (`{ iterationId, productId, name, status }`), and the working state people set: `status`, `assignee` (`{ userId, name }`), `completedOn` and `workingUpdatedBy`. `origin` says who created a row: `agent` or `app`. `today` is the day in the ad account's time zone (UTC without one). `--out` writes it to a file and prints counts and items by status |
-| `roadmap:sync --brand <id> --file roadmap.json [--prune] [--dry-run]` | Upsert events and items by `key`: `{ events, items, workingUpdated }`, each count `{ created, updated, unchanged, removed }` |
-| `roadmap:item:update --brand <id> --file update.json [--dry-run]` | Report work you did locally on one item (named by `key` in the file): status, assignee and/or completion day: `{ changed, item }` |
+| `roadmap --brand <id> [--out file.json]` | The roadmap as Bichon has it: `{ today, timeZone, events, items, members, prepTemplate }`. Each item carries `due` (the day it is due once `offsetDays` is counted from its event's `startDate`), its linked `product` and `round` (`{ iterationId, productId, name, status }`), and the working state people set: `status`, `assignee` (`{ userId, name }`), `completedOn` and `workingUpdatedBy`, and `noteCount`, how many notes it holds. `origin` says who created a row: `agent` or `app`. `today` is the day in the ad account's time zone (UTC without one). `--out` writes it to a file and prints counts and items by status |
+| `roadmap:item --brand <id> --key <itemKey>` | One item with its `notes`, newest day first: each `{ date, text, author: { kind, name, agentName }, createdAt }` |
+| `roadmap:sync --brand <id> --file roadmap.json [--prune] [--dry-run]` | Upsert events and items by `key`: `{ events, items, workingUpdated, notesAdded }`, each count `{ created, updated, unchanged, removed }` |
+| `roadmap:item:update --brand <id> --file update.json [--dry-run]` | Report on one item (named by `key` in the file): status, assignee, completion day and/or notes: `{ changed, notesAdded, item }` |
 
 **Events and due dates.** An event is a calendar range (`startDate` to
 `endDate`, `YYYY-MM-DD`). An item is due either on a fixed `dueDate` or
@@ -1169,6 +1170,25 @@ send `working` (or `roadmap:item:update`) only for work you know was done.
 Assign with `assigneeEmail` or `assigneeUserId` from `members`; `null`
 unassigns. A sync replaces an item's whole definition, so a field it leaves
 out is cleared.
+
+**Planning with the team.** Everyone on the brand plans on the same roadmap,
+each through their own key. After a discussion, read `roadmap` back first,
+then sync only the items you are adding or changing: each with the day it is
+expected to be done (`dueDate`, or `offsetDays` from an event), who does it
+(`working.assigneeEmail`), where it stands (`working.status`) and what was
+discussed and decided as `notes`. Items a bundle leaves out are kept, so a
+short bundle is safe. Pick keys nobody else uses (a prefix such as the event
+or your topic). Never `--prune` on a shared roadmap unless the manager asks:
+it removes the items teammates' agents added that your bundle leaves out.
+
+**Notes.** A note is what was discussed about an item on a day: the decision,
+the reasons, what is still open. Send them as `notes: [{ date?, text }]` on
+an item in a sync or in `roadmap:item:update`; `date` is today in the ad
+account's time zone when left out. Notes are only ever added: the same text
+on the same day is added once, so re-sending a bundle is safe, and people
+delete notes in Bichon. Read an item's notes with `roadmap:item` before
+adding to them. Write a note someone who missed the discussion can act on,
+not a transcript.
 
 **What a sync removes.** Nothing, without `--prune`. With `--prune`, the
 events and items an agent created that a list in the bundle leaves out are
@@ -1886,7 +1906,13 @@ A roadmap sync (`roadmap:sync`); `events` and `items` are both optional:
       "angle": "F2 脆弱肌抗老",
       "startDate": "2026-12-01",
       "dueDate": "2026-12-08",
-      "working": { "status": "in_progress" }
+      "working": { "status": "in_progress" },
+      "notes": [
+        {
+          "date": "2026-11-27",
+          "text": "決議：先測 A1，素材 3 張靜態；預算每天 1 個目標 CPA，跑滿 7 天再判定。"
+        }
+      ]
     }
   ]
 }
@@ -1900,7 +1926,8 @@ An item update (`roadmap:item:update`); send only what changed:
   "agent": { "name": "claude-code" },
   "key": "xmas-2026.creatives",
   "status": "in_review",
-  "assigneeEmail": "member@example.com"
+  "assigneeEmail": "member@example.com",
+  "notes": [{ "text": "三張都上傳了，等品牌審核；第二張的標題還要再確認。" }]
 }
 ```
 
@@ -1919,7 +1946,7 @@ The helper checks these before sending and names the offending path.
 | SEO tasks | ≤ 200 per plan; `number` 20, `title` 300, `description` 4000, `doneCriteria` 1500 chars; ≤ 50 linked keywords and questions; ≤ 20 `notes` per task and 300 across one sync, `text` 2000; delivery `note` 4000; a task keeps its newest 100 notes |
 | SEO keywords / questions | ≤ 500 keywords (`keyword` 200, `group` / `intent` 100) and ≤ 200 questions (`question` 1000, `topic` 100) per plan |
 | SEO pushes | ≤ 400 days of metrics, never in the future; ≤ 400 GA4 days, never in the future, each with at least one of the six fields (sessions whole numbers ≥ 0, revenue ≥ 0 in major units); ≤ 500 keyword rows; ≤ 600 checks (`engine` 40, `accuracyNote` 500), at most 8 engines per question and 200 checks kept per question; ≤ 24 scorecard months (`note` 2000, score `note` 500), 60 months kept |
-| Ad roadmap | ≤ 50 events (`name` 200, `note` 2000, `endDate` not before `startDate`) and ≤ 200 items per brand (`title` 300, `description` 4000, `doneCriteria` 1500, `avatar` / `angle` 200); `offsetDays` a whole number from -365 to 365 and only with an `event`; `dueDate` or `offsetDays`, not both; `key`s are letters, digits, `.`, `-` or `_`, ≤ 64 |
+| Ad roadmap | ≤ 50 events (`name` 200, `note` 2000, `endDate` not before `startDate`) and ≤ 200 items per brand (`title` 300, `description` 4000, `doneCriteria` 1500, `avatar` / `angle` 200); `offsetDays` a whole number from -365 to 365 and only with an `event`; `dueDate` or `offsetDays`, not both; `key`s are letters, digits, `.`, `-` or `_`, ≤ 64; ≤ 20 `notes` per item in one bundle (`text` 2000) and ≤ 20 across one sync; an item keeps its newest 100 notes |
 | `title` / `hook` / `treatment` | 200 / 1000 / 2000 chars |
 | `audienceBenefit` / `limitation` / `coreMessage` | 300 chars each |
 | `whyNow` | 2000 chars |

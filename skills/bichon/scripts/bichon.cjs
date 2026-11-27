@@ -1214,6 +1214,7 @@ const roadmapWorking = {
   assigneeUserId: { ...str(64), type: ['string', 'null'] },
   completedOn: { ...seoDate, type: ['string', 'null'] },
 };
+const roadmapNotes = list(strictObject({ date: seoDate, text: str(2000) }, ['text']), 20);
 const AD_ROADMAP_SCHEMA = adBundleSchema(
   'ad-roadmap',
   'AdRoadmap',
@@ -1245,6 +1246,7 @@ const AD_ROADMAP_SCHEMA = adBundleSchema(
           offsetDays: { type: 'integer', minimum: -365, maximum: 365 },
           order: { type: 'number', minimum: 0, maximum: 100000 },
           working: strictObject(roadmapWorking),
+          notes: roadmapNotes,
         },
         ['key', 'kind', 'title'],
       ),
@@ -1253,7 +1255,7 @@ const AD_ROADMAP_SCHEMA = adBundleSchema(
   },
   [],
 );
-const AD_ROADMAP_ITEM_UPDATE_SCHEMA = adBundleSchema('ad-roadmap-item-update', 'AdRoadmapItemUpdate', { key: seoKey, ...roadmapWorking }, ['key']);
+const AD_ROADMAP_ITEM_UPDATE_SCHEMA = adBundleSchema('ad-roadmap-item-update', 'AdRoadmapItemUpdate', { key: seoKey, ...roadmapWorking, notes: roadmapNotes }, ['key']);
 const SEO_METRICS_SCHEMA = adBundleSchema(
   'seo-metrics',
   'SeoMetrics',
@@ -1435,13 +1437,24 @@ function checkAdRoadmap(bundle, issues) {
     if (item.offsetDays !== undefined && item.dueDate !== undefined) issues.push({ path: `items[${index}]`, message: 'give dueDate or offsetDays, not both' });
     if (item.offsetDays !== undefined && item.event === undefined) issues.push({ path: `items[${index}].offsetDays`, message: 'needs an event' });
     if (item.working && item.working.assigneeEmail && item.working.assigneeUserId) issues.push({ path: `items[${index}].working`, message: 'give assigneeEmail or assigneeUserId, not both' });
+    checkRoadmapNotes(item.notes, `items[${index}].`, issues);
   });
   checkUniqueBy(items, (row) => row.key, 'items', issues);
+  const noteTotal = items.reduce((sum, item) => sum + (Array.isArray(item.notes) ? item.notes.length : 0), 0);
+  if (noteTotal > 20) issues.push({ path: 'items', message: `one sync carries at most 20 notes across its items (has ${noteTotal}); send the rest in another sync` });
+}
+
+function checkRoadmapNotes(notes, prefix, issues) {
+  (Array.isArray(notes) ? notes : []).forEach((note, index) => {
+    checkRealDates([[`${prefix}notes[${index}].date`, note && note.date]], issues);
+    if (note && typeof note.text === 'string' && note.text.trim() === '') issues.push({ path: `${prefix}notes[${index}].text`, message: 'is empty' });
+  });
 }
 
 function checkAdRoadmapItemUpdate(bundle, issues) {
-  const fields = Object.keys(bundle).filter((key) => key !== 'format' && key !== 'agent' && key !== 'key');
-  if (fields.length === 0) issues.push({ path: '(root)', message: 'set status, assigneeEmail, assigneeUserId or completedOn' });
+  const fields = Object.keys(bundle).filter((key) => key !== 'format' && key !== 'agent' && key !== 'key' && !(key === 'notes' && Array.isArray(bundle.notes) && bundle.notes.length === 0));
+  if (fields.length === 0) issues.push({ path: '(root)', message: 'set status, assigneeEmail, assigneeUserId, completedOn or notes' });
+  checkRoadmapNotes(bundle.notes, '', issues);
   if (bundle.assigneeEmail && bundle.assigneeUserId) issues.push({ path: '(root)', message: 'give assigneeEmail or assigneeUserId, not both' });
   checkRealDates([['completedOn', bundle.completedOn]], issues);
 }
@@ -2499,6 +2512,7 @@ const COMMANDS = {
   'seo:questions:check': sendFile('seo-question-checks', brandRoute('/seo/questions/checks')),
   'seo:scorecard:push': sendFile('seo-scorecard', brandRoute('/seo/scorecards')),
   'roadmap': getToFile(brandRoute('/ad-roadmap'), undefined, summarizeAdRoadmap),
+  'roadmap:item': get(brandRoute('/ad-roadmap/items'), (parsed) => ({ key: requireOption(parsed, 'key') })),
   'roadmap:sync': sendFile('ad-roadmap', brandRoute('/ad-roadmap'), (parsed) => ({ method: 'PUT', extra: flagOption(parsed, 'prune') ? { prune: true } : {} })),
   'roadmap:item:update': sendFile('ad-roadmap-item-update', brandRoute('/ad-roadmap/items'), () => ({ method: 'PATCH' })),
   schema: async (args) => {
@@ -2581,6 +2595,7 @@ const COMMANDS = {
       'seo:questions:check': '--brand <brandId> --file <checks.json> [--dry-run]',
       'seo:scorecard:push': '--brand <brandId> --file <scorecard.json> [--dry-run]',
       roadmap: '--brand <brandId> [--out <file>]',
+      'roadmap:item': '--brand <brandId> --key <itemKey>',
       'roadmap:sync': '--brand <brandId> --file <roadmap.json> [--prune] [--dry-run]',
       'roadmap:item:update': '--brand <brandId> --file <update.json> [--dry-run]',
       schema: `[--bundle ${SCHEMA_BUNDLES.join('|')}]`,

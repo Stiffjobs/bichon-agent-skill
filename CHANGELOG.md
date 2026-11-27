@@ -3,6 +3,17 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.22.0 (2026-11-27)
+
+- Roadmap notes: an item in `roadmap:sync` and the body of
+  `roadmap:item:update` take `notes: [{ date?, text }]`, the discussion behind
+  a task. Notes are appended; the same note on the same day is added once.
+  `date` defaults to today in the ad account's time zone.
+- `roadmap:item --brand --key` reads one item with its notes.
+- Bounds: 20 notes per item in one bundle and 20 across one sync, 2,000
+  characters each; an item keeps its newest 100.
+- Needs the matching app deploy.
+
 ## 0.21.0 (2026-11-27)
 
 - Ad roadmap. `roadmap` reads a brand's events and the work items planned

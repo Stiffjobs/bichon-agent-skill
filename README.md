@@ -167,6 +167,7 @@ it; see the Ad roadmap section of SKILL.md):
 $S roadmap --brand <brandId> --out work/roadmap.json           # read status and assignees back first
 $S roadmap:sync --brand <brandId> --file work/roadmap.json     # upsert events and items by key
 $S roadmap:item:update --brand <brandId> --file work/done.json # work done locally on one item
+$S roadmap:item --brand <brandId> --key xmas-2026.creatives   # one item with its discussion notes
 ```
 
 SEO / GEO plan (run the plan locally, sync it into Bichon, where the client
