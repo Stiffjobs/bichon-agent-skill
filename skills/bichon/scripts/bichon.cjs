@@ -1027,12 +1027,53 @@ const AD_PRODUCT_SCHEMA = adBundleSchema('ad-product', 'AdProduct', { product: s
 const AD_PRODUCT_PATCH_SCHEMA = adBundleSchema('ad-product-patch', 'AdProductPatch', { patch: strictObject(adProductFields) }, ['patch']);
 const AD_RULE_SCHEMA = adBundleSchema('ad-rule', 'AdRule', { rule: strictObject(adRuleFields, ['kind', 'text']) }, ['rule']);
 const AD_RULE_PATCH_SCHEMA = adBundleSchema('ad-rule-patch', 'AdRulePatch', { patch: strictObject(adRuleFields) }, ['patch']);
+const adAvatarKey = { ...str(32), pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$', description: 'letters, digits, dots, - or _ (for example A1)' };
+const AD_AVATAR_SCHEMA = adBundleSchema(
+  'ad-avatar',
+  'AdAvatar',
+  {
+    avatar: strictObject(
+      { key: adAvatarKey, name: str(200), situation: str(2000), problem: str(2000), tried: str(2000, 0), evidence: str(4000, 0), note: str(2000, 0) },
+      ['key', 'name', 'situation', 'problem'],
+    ),
+  },
+  ['avatar'],
+);
+// A pack: one confirmed avatar and one angle, the main hook its format
+// variants carry and the copy its creatives share.
+const adPackCopySchema = { ...adCopySchema, required: ['primaryText', 'headline'] };
+const adPackFields = { avatarKey: str(32), angle: str(300), mainHook: str(300), copy: adPackCopySchema };
 const AD_ITERATION_SCHEMA = adBundleSchema(
   'ad-iteration',
   'AdIteration',
-  { productId: str(64), name: str(100), note: str(2000, 0), basedOnIterationId: str(64) },
+  {
+    productId: str(64),
+    name: str(100),
+    note: str(2000, 0),
+    basedOnIterationId: str(64),
+    pack: strictObject(adPackFields, ['avatarKey', 'angle', 'mainHook', 'copy']),
+  },
   ['productId', 'name'],
 );
+const AD_PACK_PATCH_SCHEMA = adBundleSchema('ad-pack-patch', 'AdPackPatch', { pack: strictObject(adPackFields) }, ['pack']);
+// The server's cap on one avatar, as stored: trimmed text, empty fields left out.
+function checkAvatarBundle(bundle, issues) {
+  if (!bundle.avatar || typeof bundle.avatar !== 'object') return;
+  const stored = Object.fromEntries(
+    Object.entries(bundle.avatar)
+      .map(([field, value]) => [field, typeof value === 'string' ? value.trim() : value])
+      .filter(([, value]) => value !== '' && value !== undefined),
+  );
+  if (Buffer.byteLength(JSON.stringify(stored), 'utf8') > 16000) issues.push({ path: 'avatar', message: 'holds too much text (16,000 bytes at most); shorten it' });
+}
+// A creative of a pack names its variant; any other round needs its angle.
+function checkCreativeBundle(bundle, issues) {
+  const creative = bundle.creative;
+  if (creative && typeof creative === 'object' && creative.variant === undefined && creative.angle === undefined) issues.push({ path: 'creative', message: 'needs `variant` (in a pack) or `angle` (in any other round)' });
+}
+function checkPackPatchBundle(bundle, issues) {
+  if (bundle.pack && typeof bundle.pack === 'object' && Object.keys(bundle.pack).length === 0) issues.push({ path: 'pack', message: 'set at least one field' });
+}
 const ruleFlagsSchema = list(strictObject({ ruleId: str(64), note: str(500) }, ['ruleId', 'note']), 20);
 const AD_CREATIVE_SCHEMA = adBundleSchema(
   'ad-creative',
@@ -1044,11 +1085,12 @@ const AD_CREATIVE_SCHEMA = adBundleSchema(
         angle: str(300),
         hook: str(300),
         format: str(100),
+        variant: { enum: ['format', 'hook'] },
         utmCreative: { ...str(100), pattern: '^[a-z0-9][a-z0-9._-]*$' },
         copy: adCopySchema,
         basedOnCreativeId: str(64),
       },
-      ['title', 'angle', 'hook', 'format', 'utmCreative'],
+      ['title', 'hook', 'format', 'utmCreative'],
     ),
     prompt: str(20000),
     onImageText: str(4000, 0),
@@ -1924,8 +1966,10 @@ const BUNDLES = {
   'ad-product-patch': { schema: AD_PRODUCT_PATCH_SCHEMA, counts: () => ({ products: 1 }) },
   'ad-rule': { schema: AD_RULE_SCHEMA, counts: () => ({ rules: 1 }) },
   'ad-rule-patch': { schema: AD_RULE_PATCH_SCHEMA, counts: () => ({ rules: 1 }) },
+  'ad-avatar': { schema: AD_AVATAR_SCHEMA, check: checkAvatarBundle, counts: () => ({ avatars: 1 }) },
   'ad-iteration': { schema: AD_ITERATION_SCHEMA, counts: () => ({ iterations: 1 }) },
-  'creative-review': { schema: AD_CREATIVE_SCHEMA, counts: () => ({ creatives: 1 }) },
+  'ad-pack-patch': { schema: AD_PACK_PATCH_SCHEMA, check: checkPackPatchBundle, counts: (bundle) => ({ fields: Object.keys(bundle.pack).length }) },
+  'creative-review': { schema: AD_CREATIVE_SCHEMA, check: checkCreativeBundle, counts: () => ({ creatives: 1 }) },
   'creative-revision': { schema: AD_REVISION_SCHEMA, counts: () => ({ revisions: 1 }) },
   'ad-test-review': {
     schema: AD_TEST_REVIEW_SCHEMA,
@@ -1963,7 +2007,7 @@ const BUNDLES = {
   research: { schema: RESEARCH_ANALYSES_SCHEMA, check: checkResearchBundle, counts: (bundle) => ({ items: bundle.items.length }) },
   captures: { schema: RESEARCH_CAPTURES_SCHEMA, check: checkCapturesBundle, counts: (bundle) => ({ items: bundle.items.length }) },
 };
-const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-iteration', 'creative-review', 'creative-revision', 'ad-test-review', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-analytics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard', 'ad-roadmap', 'ad-roadmap-item-update'];
+const SCHEMA_BUNDLES = ['posts', 'drafts', 'setup', 'personas', 'research', 'captures', 'ad-product', 'ad-product-patch', 'ad-rule', 'ad-rule-patch', 'ad-avatar', 'ad-iteration', 'ad-pack-patch', 'creative-review', 'creative-revision', 'ad-test-review', 'seo-plan', 'seo-task-update', 'seo-metrics', 'seo-analytics', 'seo-keyword-stats', 'seo-question-checks', 'seo-scorecard', 'ad-roadmap', 'ad-roadmap-item-update'];
 
 function validateBundle(kind, bundle) {
   const issues = [];
@@ -2475,8 +2519,11 @@ const COMMANDS = {
   'ad-product:cutout': withConfig(addCutout),
   'ad-rule:import': sendFile('ad-rule', brandRoute('/ad-book/rules')),
   'ad-rule:update': sendFile('ad-rule-patch', adRuleRoute, () => ({ method: 'PATCH' })),
+  'avatar:list': get(brandRoute('/ad-book/avatars')),
+  'avatar:upsert': sendFile('ad-avatar', brandRoute('/ad-book/avatars')),
   'creative:iterations': get(brandRoute('/ad-review/iterations'), (parsed) => ({ productId: optionalOption(parsed, 'product') })),
   'creative:iteration:create': sendFile('ad-iteration', brandRoute('/ad-review/iterations')),
+  'creative:iteration:update': sendFile('ad-pack-patch', iterationRoute(''), () => ({ method: 'PATCH' })),
   'creative:submit': withConfig((parsed, config) => sendWithImage(parsed, config, 'creative-review', iterationCreativesRoute)),
   'creative:list': getToFile(
     brandRoute('/ad-review/creatives'),
@@ -2574,8 +2621,11 @@ const COMMANDS = {
       'ad-product:cutout': '--brand <brandId> --id <productId> --file <image.jpg|png|webp> [--label <text>]',
       'ad-rule:import': '--brand <brandId> --file <rule.json> [--dry-run]',
       'ad-rule:update': '--brand <brandId> --id <ruleId> --file <patch.json> [--dry-run]',
+      'avatar:list': '--brand <brandId>',
+      'avatar:upsert': '--brand <brandId> --file <avatar.json> [--dry-run]',
       'creative:iterations': '--brand <brandId> [--product <productId>]',
       'creative:iteration:create': '--brand <brandId> --file <iteration.json> [--dry-run]',
+      'creative:iteration:update': '--brand <brandId> --iteration <iterationId> --file <pack.json> [--dry-run]',
       'creative:submit': '--brand <brandId> --iteration <iterationId> --file <creative.json> --image <image.jpg|png|webp> [--dry-run]',
       'creative:list': `--brand <brandId> [--status ${CREATIVE_STATUSES.join('|')}] [--iteration <iterationId>] [--limit 1..50] [--out <file>]`,
       'creative:get': '--brand <brandId> --id <creativeId>',

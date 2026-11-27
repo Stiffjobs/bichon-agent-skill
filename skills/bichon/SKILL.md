@@ -17,7 +17,8 @@ description: >
   performance (spend, clicks, results by campaign, ad set or ad) to report to
   the manager, and builds Meta ad campaigns, ad sets, creatives and ads for
   the brand, uploading the ad images and videos, all created paused. Keeps
-  the brand book of products and rules, uploads generated ad creatives for
+  the brand book of products, rules and avatars, builds packs (one avatar,
+  one angle, format and hook variants), uploads generated ad creatives for
   review, and revises them against the reviewer's comments, changing only the
   image areas they marked; links the Meta ads to the creatives they run,
   drafts each test round's verdicts and review, and builds the next round on
@@ -1004,17 +1005,20 @@ ad.
 | `ad-product:cutout --brand <id> --id <productId> --file <image> [--label <text>]` | Upload an official cutout (JPEG, PNG or WebP, ≤ 8 MB; at most 12): `{ cutoutId }` |
 | `ad-rule:import --brand <id> --file rule.json [--dry-run]` | Create a rule; the same product, kind and text updates it: `{ ruleId, action }` |
 | `ad-rule:update --brand <id> --id <ruleId> --file patch.json [--dry-run]` | Change or retire a rule |
-| `creative:iterations --brand <id> [--product <productId>]` | `{ iterations, truncated }`: rounds with `status` (`open`, `ready`, `live`, `concluded`, `closed`; see Creative testing), counts per review status, `basedOnIterationId`, `liveAt` and `concludedAt`; without `--product`, the brand's newest 500 |
-| `creative:iteration:create --brand <id> --file iteration.json [--dry-run]` | Open a round, optionally built on an earlier round of the product (`basedOnIterationId`); a repeated name returns the same one: `{ iterationId, action, status }` |
-| `creative:submit --brand <id> --iteration <iterationId> --file creative.json --image <file> [--dry-run]` | Upload the image and submit the creative for review: `{ creativeId, revision: 1, status: "submitted" }`. The image's size is read from the file |
-| `creative:list --brand <id> [--status changes_requested\|submitted\|approved\|rejected] [--iteration <id>] [--limit 1..50] [--out file.json]` | Creatives by status (default `changes_requested`), each with `image` (`url`, `width`, `height`), `prompt`, `onImageText`, `ruleFlags`, `copy` and the `comments` on its current revision |
+| `avatar:list --brand <id>` | The brand's avatars: `{ avatars }`, each with `key`, `name`, `situation`, `problem`, `tried`, `evidence`, `note`, `status` (`draft`, `confirmed`, `retired`), who drafted and who confirmed it |
+| `avatar:upsert --brand <id> --file avatar.json [--dry-run]` | Draft an avatar, or update the draft with that `key`: `{ avatarId, key, action: "created"\|"updated"\|"unchanged", status }`. A confirmed or retired avatar is changed by a manager in Bichon (409) |
+| `creative:iterations --brand <id> [--product <productId>]` | `{ iterations, truncated }`: rounds with `status` (`open`, `ready`, `live`, `concluded`, `closed`; see Creative testing), counts per review status, `basedOnIterationId`, `liveAt`, `concludedAt` and `pack` (`{ avatarId, avatarKey, avatarName, angle, mainHook }`, or null for a round that is not a pack); without `--product`, the brand's newest 300 |
+| `creative:iteration:create --brand <id> --file iteration.json [--dry-run]` | Open a round, optionally built on an earlier round of the product (`basedOnIterationId`) and, with `pack`, as a pack (see Packs); a repeated name returns the same one: `{ iterationId, action, status }` |
+| `creative:iteration:update --brand <id> --iteration <iterationId> --file pack.json [--dry-run]` | Change an open round's pack, or make an empty open round a pack: `{ iterationId, action: "updated"\|"unchanged" }` |
+| `creative:submit --brand <id> --iteration <iterationId> --file creative.json --image <file> [--dry-run]` | Upload the image and submit the creative for review: `{ creativeId, revision: 1, status: "submitted" }`. The image's size is read from the file. In a pack, `creative.variant` is required |
+| `creative:list --brand <id> [--status changes_requested\|submitted\|approved\|rejected] [--iteration <id>] [--limit 1..50] [--out file.json]` | Creatives by status (default `changes_requested`), each with `image` (`url`, `width`, `height`), `prompt`, `onImageText`, `ruleFlags`, `copy`, `variant`, `pack` and the `comments` on its current revision |
 | `creative:get --brand <id> --id <creativeId>` | One creative in the same shape, with `basedOnCreativeId` and the Meta `ads` linked to it (`adId`, `accountId`) |
 | `creative:regions --brand <id> --id <creativeId> --out <dir>` | Write the image, an overlay with every box numbered, one crop per box and `regions.json` to `<dir>` |
 | `creative:revise --brand <id> --id <creativeId> --file revision.json --image <file> [--dry-run]` | Upload the new version and send it back to review: `{ creativeId, revision, status: "submitted" }` |
 | `creative:ad:link --brand <id> --id <creativeId> --ad <adId> --revision <n> [--account <accountId>]` | Link an existing Meta ad (one made in Ads Manager, or before the round) to the approved creative it runs, after checking it sits in the ad account. `--revision` is the creative's `revision` (from `creative:get`) the ad was built from; a creative at another revision refuses it (409): `{ creativeId, adId, accountId, action: "linked"\|"existing" }` |
 | `creative:ad:unlink --brand <id> --id <creativeId> --ad <adId>` | Remove a wrong link: `{ creativeId, adId, removed }` |
 | `creative:review:draft --brand <id> --iteration <iterationId> --file review.json [--dry-run]` | Draft a live round's review for the manager: verdicts and notes per creative and the review text: `{ iterationId, status, review, creatives }` |
-| `creative:learnings --brand <id> --product <productId> [--limit 1..20]` | What the product's concluded rounds settled, newest first (default 5): `{ productId, productName, batches: [{ iterationId, name, concludedAt, basedOnIterationId, review: { worked, didntWork, nextBatch }, creatives: [{ creativeId, title, angle, hook, format, verdict, note, basedOnCreativeId }] }], truncated }`; no numbers |
+| `creative:learnings --brand <id> --product <productId> [--limit 1..20]` | What the product's concluded rounds settled, newest first (default 5): `{ productId, productName, batches: [{ iterationId, name, concludedAt, basedOnIterationId, pack, review: { worked, didntWork, nextBatch }, creatives: [{ creativeId, title, angle, hook, format, variant, verdict, note, basedOnCreativeId }] }], truncated }`; no numbers |
 
 **Before generating.** Read `ad-book` and follow it. Use the product's
 canonical name and never a banned one. Use each claim label as written and
@@ -1064,6 +1068,46 @@ no longer open; pull it again and tell the manager rather than retrying.
 `ad-rule:import` per rule, with `source` and `setOn` when the rule predates
 the import (who decided it, and the day). Show the manager what you are about
 to import before sending it.
+
+## Packs
+
+A pack is a round that tests one avatar with one angle. Work in this order:
+
+1. **Avatar first.** An avatar is a person in a situation that causes a
+   problem that is big for her (not an age or a city). Read `avatar:list`.
+   Draft a missing one with `avatar:upsert`, each claim about her traced to
+   a source in `evidence`, and ask the manager to confirm it in Bichon
+   (Products and brand book → Avatars). You never confirm one. A pack on an
+   avatar that is not `confirmed` is refused (409).
+2. **Create the pack.** `creative:iteration:create` with `pack`:
+   `avatarKey`, the `angle` (the one concept this pack tests), the
+   `mainHook` (the on-image headline) and `copy`, the primary text, headline
+   and description every creative of the pack runs (`primaryText` and
+   `headline` at least). The copy speaks to this avatar; write it before the
+   images. Fields the pack copy leaves out come from the product's listing
+   copy (its link and call to action, usually).
+3. **Submit 3 format variants and 3 hook variants**, each with
+   `creative.variant`:
+   - `"format"`: `hook` is the pack's `mainHook`; each has a different
+     `format`. These answer which format works.
+   - `"hook"`: each has a different `hook`, none of them the `mainHook`; all
+     share one `format`. These answer which hook works.
+   Leave `creative.angle` out (it is the pack's), and leave `creative.copy`
+   out unless one creative truly needs different words: the pack tests the
+   image, so the copy stays the same.
+4. **Review and test** as any round (Creative testing).
+
+A submit that breaks the comparison is refused and names the creative it
+clashes with: a format variant with another hook (400), a format that is
+already tested, a repeated hook, or a hook variant in a second format (409).
+Hooks and formats are compared with width, case and spacing aside. Rejected
+creatives do not count and free their hook or format. Three of each is the
+target, not a limit.
+
+`creative:iteration:update` changes the pack while the round is `open`. Once
+a creative that is not rejected stands under it, only the `copy` can change
+(409 otherwise); reviewers then see the new copy on every creative that has
+no override of its own.
 
 ## Creative testing
 
@@ -1615,6 +1659,80 @@ An iteration (`basedOnIterationId` is optional: the round it builds on):
 }
 ```
 
+An avatar (`avatar:upsert`; `key` identifies it):
+
+```json
+{
+  "format": "bichon-ad-avatar/v1",
+  "agent": { "name": "claude-code" },
+  "avatar": {
+    "key": "A1",
+    "name": "生完小孩皮膚整個變了的新手媽媽",
+    "situation": "懷孕荷爾蒙讓皮膚變敏感，生完、退奶後都沒有回來",
+    "problem": "以前擦的都不能擦；拍小孩開到前鏡頭被自己嚇到",
+    "tried": "原本的愛用品都會刺；刷酸讓痘痘更糟",
+    "evidence": "Dcard 5 篇（非業配）；LINE 對話 #600、#11886",
+    "note": "寫「生完／退奶後」，不宣稱孕期或哺乳期可用"
+  }
+}
+```
+
+A pack (`creative:iteration:create` with `pack`; the avatar must be
+confirmed):
+
+```json
+{
+  "format": "bichon-ad-iteration/v1",
+  "agent": { "name": "claude-code" },
+  "productId": "<productId>",
+  "name": "批次5 A1 產後",
+  "pack": {
+    "avatarKey": "A1",
+    "angle": "生完小孩 皮膚整個變了",
+    "mainHook": "生完小孩 以前擦的都不能擦？",
+    "copy": {
+      "primaryText": "生完之後，皮膚像換了一張。溫和的抗老，從穩定開始。",
+      "headline": "敏弱肌也能抗老",
+      "description": "溫和不刺激"
+    }
+  }
+}
+```
+
+A pack change (`creative:iteration:update`; send only what changes):
+
+```json
+{
+  "format": "bichon-ad-pack-patch/v1",
+  "agent": { "name": "claude-code" },
+  "pack": {
+    "copy": {
+      "primaryText": "生完之後，皮膚像換了一張。先穩定，再抗老。",
+      "headline": "敏弱肌也能抗老"
+    }
+  }
+}
+```
+
+A pack's creative (a format variant carries the main hook; a hook variant
+would set `"variant": "hook"` and its own `hook`):
+
+```json
+{
+  "format": "bichon-ad-creative/v1",
+  "agent": { "name": "claude-code" },
+  "creative": {
+    "title": "A1 主 hook｜手拿",
+    "hook": "生完小孩 以前擦的都不能擦？",
+    "format": "手拿",
+    "variant": "format",
+    "utmCreative": "fullerene-a1-main-hand-v1"
+  },
+  "prompt": "The full prompt the image was generated from",
+  "onImageText": "生完小孩 以前擦的都不能擦？"
+}
+```
+
 A creative (`creative:submit` adds the image):
 
 ```json
@@ -1940,6 +2058,8 @@ The helper checks these before sending and names the offending path.
 | `posts` | ≤ 5 (0 allowed with `noPostsReason`) |
 | Ad product | `name` 100 chars; ≤ 30 `bannedNames`; ≤ 40 `claimLabels`; ≤ 60 each of `canSay` and `cannotSay`, `text` and `note` 1000 chars; primary text 5000 chars, headline and description 255 |
 | Ad rule | `text` 2000 chars; ≤ 20 accepted and 20 rejected examples of 500 chars |
+| Avatar | ≤ 200 per brand; `key` letters, digits, `.`, `-` or `_`, ≤ 32; `name` 200, `situation`, `problem`, `tried` and `note` 2000, `evidence` 4000 chars; 16 KB in all |
+| Pack | `avatarKey` 32, `angle` and `mainHook` 300 chars; `copy` primary text 5000, headline and description 255, call to action 50, link 2000 |
 | Creative | `title` 200, `angle` and `hook` 300, `format` and `utmCreative` 100 chars; `prompt` 20000, `onImageText` 4000 chars; ≤ 20 `ruleFlags`, `note` 500 chars; ≤ 20 revisions and 200 per iteration |
 | Revision `responseNote` | 2000 chars, required |
 | SEO plan | `title` 200 chars, `site` an http(s) URL, `goal` 4000, `currency` an ISO 4217 code in capitals; 1–12 `phases` (`title` 200, `description` 2000); ≤ 12 `dimensions` (`title` 100, weights summing to 100); `key`s are letters, digits, `.`, `-` or `_`, ≤ 64 |

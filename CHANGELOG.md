@@ -3,6 +3,26 @@
 Versions are identified by the `last-updated` date in `skills/bichon/SKILL.md`.
 Run `npx skills update bichon` to get the latest.
 
+## 0.23.0 (2026-11-27)
+
+- Avatars: `avatar:list` and `avatar:upsert` keep the brand's avatars (who
+  she is, her situation, her problem, what she tried, evidence). An agent
+  drafts; a manager confirms in Bichon, and a confirmed avatar is refused
+  unless the content is identical.
+- Packs: `creative:iteration:create` takes `pack` (a confirmed avatar's key,
+  the angle, the main hook and the copy its creatives share: primary text and
+  headline at least); `creative:iteration:update` changes it while the round
+  is open. Avatar, angle and main hook lock once a creative stands under
+  them; the copy locks once an ad is linked.
+- Variants: in a pack `creative:submit` takes `variant`: `format` (the main
+  hook in a format no other format variant uses) or `hook` (another hook, all
+  hook variants in one format). The target is three of each. A clash is
+  refused and names the creative.
+- The creative reads and `creative:learnings` return the pack and each
+  variant. `creative:iterations` without `--product` lists the newest 300
+  rounds (was 500).
+- Needs the matching app deploy.
+
 ## 0.22.0 (2026-11-27)
 
 - Roadmap notes: an item in `roadmap:sync` and the body of
